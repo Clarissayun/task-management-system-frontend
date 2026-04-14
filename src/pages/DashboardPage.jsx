@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createTask, deleteTask, getTasksByUserId } from '../api/tasks.api'
+import {
+  createTask,
+  deleteTask,
+  getTasksByPriority,
+  getTasksByStatus,
+  getTasksByUserId,
+  updateTaskStatus,
+} from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH']
+const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE']
 
 function getUserId(user) {
   return user?.userId || user?.id || null
@@ -29,7 +37,12 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingTaskId, setDeletingTaskId] = useState(null)
+  const [updatingStatusTaskId, setUpdatingStatusTaskId] = useState(null)
   const [error, setError] = useState('')
+  const [filters, setFilters] = useState({
+    status: 'ALL',
+    priority: 'ALL',
+  })
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -50,15 +63,32 @@ export default function DashboardPage() {
     setError('')
 
     try {
-      const response = await getTasksByUserId(userId)
-      setTasks(Array.isArray(response) ? response : [])
+      let response
+
+      if (filters.status !== 'ALL' && filters.priority === 'ALL') {
+        response = await getTasksByStatus(userId, filters.status)
+      } else if (filters.status === 'ALL' && filters.priority !== 'ALL') {
+        response = await getTasksByPriority(userId, filters.priority)
+      } else {
+        response = await getTasksByUserId(userId)
+      }
+
+      let nextTasks = Array.isArray(response) ? response : []
+
+      if (filters.status !== 'ALL' && filters.priority !== 'ALL') {
+        nextTasks = nextTasks.filter(
+          (task) => task.status === filters.status && task.priority === filters.priority
+        )
+      }
+
+      setTasks(nextTasks)
     } catch (apiError) {
       setError(apiError.message || 'Failed to load tasks.')
       setTasks([])
     } finally {
       setIsLoading(false)
     }
-  }, [userId])
+  }, [filters.priority, filters.status, userId])
 
   const handleFormChange = (event) => {
     const { name, value } = event.target
@@ -103,6 +133,37 @@ export default function DashboardPage() {
       setError(apiError.message || 'Failed to create task.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleFilterChange = (event) => {
+    const { name, value } = event.target
+
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      [name]: value,
+    }))
+  }
+
+  const resetFilters = () => {
+    setFilters({ status: 'ALL', priority: 'ALL' })
+  }
+
+  const handleTaskStatusChange = async (taskId, nextStatus) => {
+    if (!taskId || !nextStatus) {
+      return
+    }
+
+    setUpdatingStatusTaskId(taskId)
+    setError('')
+
+    try {
+      await updateTaskStatus(taskId, nextStatus)
+      await loadTasks()
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to update task status.')
+    } finally {
+      setUpdatingStatusTaskId(null)
     }
   }
 
@@ -197,12 +258,60 @@ export default function DashboardPage() {
         </button>
       </form>
 
+      <div
+        style={{
+          display: 'grid',
+          gap: '12px',
+          marginBottom: '20px',
+          padding: '16px',
+          border: '1px solid #ddd',
+          borderRadius: '12px',
+          textAlign: 'left',
+        }}
+      >
+        <h3 style={{ margin: 0 }}>Filters</h3>
+
+        <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: '1fr 1fr auto' }}>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            Status
+            <select name="status" value={filters.status} onChange={handleFilterChange}>
+              <option value="ALL">ALL</option>
+              {STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ display: 'grid', gap: '6px' }}>
+            Priority
+            <select name="priority" value={filters.priority} onChange={handleFilterChange}>
+              <option value="ALL">ALL</option>
+              {PRIORITIES.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priority}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button type="button" onClick={resetFilters} style={{ alignSelf: 'end' }}>
+            Reset
+          </button>
+        </div>
+      </div>
+
       {isLoading ? <p>Loading tasks...</p> : null}
 
       {!isLoading && error ? <p style={{ color: '#b91c1c' }}>{error}</p> : null}
 
       {!isLoading && !error && tasks.length === 0 ? (
-        <p>No tasks found. Create your first task in the next step.</p>
+        <p>
+          {filters.status !== 'ALL' || filters.priority !== 'ALL'
+            ? 'No tasks found for the selected filters.'
+            : 'No tasks found. Create your first task in the next step.'}
+        </p>
       ) : null}
 
       {!isLoading && !error && tasks.length > 0 ? (
@@ -239,10 +348,25 @@ export default function DashboardPage() {
               </p>
 
               <div style={{ marginTop: '12px' }}>
+                <label style={{ display: 'grid', gap: '6px', marginBottom: '10px' }}>
+                  Change Status
+                  <select
+                    value={task.status || 'TODO'}
+                    onChange={(event) => handleTaskStatusChange(task.id, event.target.value)}
+                    disabled={updatingStatusTaskId === task.id}
+                  >
+                    {STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <button
                   type="button"
                   onClick={() => handleDeleteTask(task.id)}
-                  disabled={deletingTaskId === task.id}
+                  disabled={deletingTaskId === task.id || updatingStatusTaskId === task.id}
                 >
                   {deletingTaskId === task.id ? 'Deleting...' : 'Delete Task'}
                 </button>
