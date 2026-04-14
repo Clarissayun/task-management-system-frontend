@@ -5,6 +5,7 @@ import {
   getTasksByPriority,
   getTasksByStatus,
   getTasksByUserId,
+  updateTask,
   updateTaskStatus,
 } from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
@@ -38,6 +39,13 @@ export default function DashboardPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [deletingTaskId, setDeletingTaskId] = useState(null)
   const [updatingStatusTaskId, setUpdatingStatusTaskId] = useState(null)
+  const [savingEditTaskId, setSavingEditTaskId] = useState(null)
+  const [editingTaskId, setEditingTaskId] = useState(null)
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    priority: 'LOW',
+  })
   const [error, setError] = useState('')
   const [filters, setFilters] = useState({
     status: 'ALL',
@@ -164,6 +172,62 @@ export default function DashboardPage() {
       setError(apiError.message || 'Failed to update task status.')
     } finally {
       setUpdatingStatusTaskId(null)
+    }
+  }
+
+  const startEditTask = (task) => {
+    setEditingTaskId(task.id)
+    setEditForm({
+      title: task.title || '',
+      description: task.description || '',
+      priority: task.priority || 'LOW',
+    })
+  }
+
+  const cancelEditTask = () => {
+    setEditingTaskId(null)
+    setEditForm({
+      title: '',
+      description: '',
+      priority: 'LOW',
+    })
+  }
+
+  const handleEditFormChange = (event) => {
+    const { name, value } = event.target
+
+    setEditForm((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }))
+  }
+
+  const handleSaveEditTask = async (taskId) => {
+    if (!taskId) {
+      return
+    }
+
+    if (!editForm.title.trim()) {
+      setError('Task title is required.')
+      return
+    }
+
+    setSavingEditTaskId(taskId)
+    setError('')
+
+    try {
+      await updateTask(taskId, {
+        title: editForm.title.trim(),
+        description: editForm.description.trim(),
+        priority: editForm.priority,
+      })
+
+      cancelEditTask()
+      await loadTasks()
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to update task.')
+    } finally {
+      setSavingEditTaskId(null)
     }
   }
 
@@ -326,20 +390,65 @@ export default function DashboardPage() {
                 textAlign: 'left',
               }}
             >
-              <h3 style={{ marginTop: 0, marginBottom: '8px' }}>
-                {task.title || 'Untitled task'}
-              </h3>
+              {editingTaskId === task.id ? (
+                <div style={{ display: 'grid', gap: '10px', marginBottom: '12px' }}>
+                  <h3 style={{ marginTop: 0, marginBottom: 0 }}>Edit Task</h3>
 
-              <p style={{ marginBottom: '12px' }}>
-                {task.description || 'No description provided.'}
-              </p>
+                  <label style={{ display: 'grid', gap: '6px' }}>
+                    Title
+                    <input
+                      name="title"
+                      type="text"
+                      value={editForm.title}
+                      onChange={handleEditFormChange}
+                      autoComplete="off"
+                    />
+                  </label>
 
-              <p style={{ margin: '4px 0' }}>
-                <strong>Status:</strong> {task.status || '-'}
-              </p>
-              <p style={{ margin: '4px 0' }}>
-                <strong>Priority:</strong> {task.priority || '-'}
-              </p>
+                  <label style={{ display: 'grid', gap: '6px' }}>
+                    Description
+                    <textarea
+                      name="description"
+                      value={editForm.description}
+                      onChange={handleEditFormChange}
+                      rows={4}
+                    />
+                  </label>
+
+                  <label style={{ display: 'grid', gap: '6px' }}>
+                    Priority
+                    <select
+                      name="priority"
+                      value={editForm.priority}
+                      onChange={handleEditFormChange}
+                    >
+                      {PRIORITIES.map((priority) => (
+                        <option key={priority} value={priority}>
+                          {priority}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ) : (
+                <>
+                  <h3 style={{ marginTop: 0, marginBottom: '8px' }}>
+                    {task.title || 'Untitled task'}
+                  </h3>
+
+                  <p style={{ marginBottom: '12px' }}>
+                    {task.description || 'No description provided.'}
+                  </p>
+
+                  <p style={{ margin: '4px 0' }}>
+                    <strong>Status:</strong> {task.status || '-'}
+                  </p>
+                  <p style={{ margin: '4px 0' }}>
+                    <strong>Priority:</strong> {task.priority || '-'}
+                  </p>
+                </>
+              )}
+
               <p style={{ margin: '4px 0' }}>
                 <strong>Created:</strong> {formatDate(task.createdAt)}
               </p>
@@ -363,10 +472,43 @@ export default function DashboardPage() {
                   </select>
                 </label>
 
+                {editingTaskId === task.id ? (
+                  <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveEditTask(task.id)}
+                      disabled={savingEditTaskId === task.id}
+                    >
+                      {savingEditTaskId === task.id ? 'Saving...' : 'Save Changes'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={cancelEditTask}
+                      disabled={savingEditTaskId === task.id}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startEditTask(task)}
+                    disabled={deletingTaskId === task.id || updatingStatusTaskId === task.id}
+                    style={{ marginBottom: '10px' }}
+                  >
+                    Edit Task
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => handleDeleteTask(task.id)}
-                  disabled={deletingTaskId === task.id || updatingStatusTaskId === task.id}
+                  disabled={
+                    deletingTaskId === task.id ||
+                    updatingStatusTaskId === task.id ||
+                    savingEditTaskId === task.id
+                  }
                 >
                   {deletingTaskId === task.id ? 'Deleting...' : 'Delete Task'}
                 </button>
