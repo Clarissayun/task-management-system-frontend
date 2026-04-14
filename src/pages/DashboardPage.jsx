@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getTasksByUserId } from '../api/tasks.api'
+import { createTask, deleteTask, getTasksByUserId } from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
+
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH']
 
 function getUserId(user) {
   return user?.userId || user?.id || null
@@ -25,7 +27,14 @@ export default function DashboardPage() {
 
   const [tasks, setTasks] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [deletingTaskId, setDeletingTaskId] = useState(null)
   const [error, setError] = useState('')
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    priority: 'LOW',
+  })
 
   const userId = useMemo(() => getUserId(user), [user])
 
@@ -51,6 +60,70 @@ export default function DashboardPage() {
     }
   }, [userId])
 
+  const handleFormChange = (event) => {
+    const { name, value } = event.target
+
+    setForm((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }))
+  }
+
+  const handleCreateTask = async (event) => {
+    event.preventDefault()
+
+    if (!userId) {
+      setError('No active user session found.')
+      return
+    }
+
+    if (!form.title.trim()) {
+      setError('Task title is required.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError('')
+
+    try {
+      await createTask(userId, {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        priority: form.priority,
+      })
+
+      setForm({
+        title: '',
+        description: '',
+        priority: 'LOW',
+      })
+
+      await loadTasks()
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to create task.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDeleteTask = async (taskId) => {
+    if (!taskId) {
+      return
+    }
+
+    setDeletingTaskId(taskId)
+    setError('')
+
+    try {
+      await deleteTask(taskId)
+      await loadTasks()
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to delete task.')
+    } finally {
+      setDeletingTaskId(null)
+    }
+  }
+
   useEffect(() => {
     loadTasks()
   }, [loadTasks])
@@ -70,6 +143,59 @@ export default function DashboardPage() {
           {isLoading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
+
+      <form
+        onSubmit={handleCreateTask}
+        style={{
+          display: 'grid',
+          gap: '12px',
+          marginBottom: '20px',
+          padding: '16px',
+          border: '1px solid #ddd',
+          borderRadius: '12px',
+          textAlign: 'left',
+        }}
+      >
+        <h3 style={{ margin: 0 }}>Create Task</h3>
+
+        <label style={{ display: 'grid', gap: '6px' }}>
+          Title
+          <input
+            name="title"
+            type="text"
+            value={form.title}
+            onChange={handleFormChange}
+            placeholder="Enter task title"
+            autoComplete="off"
+          />
+        </label>
+
+        <label style={{ display: 'grid', gap: '6px' }}>
+          Description
+          <textarea
+            name="description"
+            value={form.description}
+            onChange={handleFormChange}
+            placeholder="Enter task description"
+            rows={4}
+          />
+        </label>
+
+        <label style={{ display: 'grid', gap: '6px' }}>
+          Priority
+          <select name="priority" value={form.priority} onChange={handleFormChange}>
+            {PRIORITIES.map((priority) => (
+              <option key={priority} value={priority}>
+                {priority}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button type="submit" disabled={isSubmitting || isLoading}>
+          {isSubmitting ? 'Creating...' : 'Create Task'}
+        </button>
+      </form>
 
       {isLoading ? <p>Loading tasks...</p> : null}
 
@@ -111,6 +237,16 @@ export default function DashboardPage() {
               <p style={{ margin: '4px 0' }}>
                 <strong>Updated:</strong> {formatDate(task.updatedAt)}
               </p>
+
+              <div style={{ marginTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteTask(task.id)}
+                  disabled={deletingTaskId === task.id}
+                >
+                  {deletingTaskId === task.id ? 'Deleting...' : 'Delete Task'}
+                </button>
+              </div>
             </article>
           ))}
         </div>
