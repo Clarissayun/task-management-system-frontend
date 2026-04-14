@@ -16,9 +16,12 @@ export default function AppLayout() {
           padding: '12px 20px',
         }}
       >
-        <Link to={ROUTES.dashboard} style={{ fontWeight: 700 }}>
-          Task Management
-        </Link>
+        <nav style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <Link to={ROUTES.dashboard} style={{ fontWeight: 700 }}>
+            Task Management
+          </Link>
+          <Link to={ROUTES.profile}>Profile</Link>
+        </nav>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span>{user?.username || user?.email || 'User'}</span>

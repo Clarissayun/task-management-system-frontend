@@ -5,6 +5,7 @@ import AuthLayout from './layouts/AuthLayout'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import NotFoundPage from './pages/NotFoundPage'
+import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
 import ProtectedRoute from './routes/ProtectedRoute'
 import PublicOnlyRoute from './routes/PublicOnlyRoute'
@@ -25,6 +26,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path={ROUTES.dashboard} element={<DashboardPage />} />
+            <Route path={ROUTES.profile} element={<ProfilePage />} />
           </Route>
         </Route>
 
