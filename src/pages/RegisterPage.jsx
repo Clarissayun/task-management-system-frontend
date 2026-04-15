@@ -17,6 +17,10 @@ import { ROUTES } from '../constants/routes'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const PASSWORD_RULE_MESSAGE =
+    'Password must be 12+ characters and include uppercase, lowercase, number, and special character.'
+  const PASSWORD_CONTAINS_PERSONAL_INFO_MESSAGE =
+    'Password cannot contain your name or email.'
 
   const [form, setForm] = useState({
     username: '',
@@ -25,6 +29,12 @@ export default function RegisterPage() {
     confirmPassword: '',
   })
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({
+    username: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+  })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -32,19 +42,119 @@ export default function RegisterPage() {
   const handleChange = (event) => {
     const { name, value } = event.target
     setForm((currentForm) => ({ ...currentForm, [name]: value }))
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      [name]: '',
+    }))
+
+    if (error) {
+      setError('')
+    }
   }
 
-  const handleSubmit = async (event) => {
-    event.preventDefault()
-    setError('')
+  const isValidEmail = (value) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 
-    if (!form.username.trim() || !form.email.trim() || !form.password.trim()) {
-      setError('Username, email, and password are required.')
-      return
+  const validatePasswordPolicy = (password, username, email) => {
+    if (password.length < 12) {
+      return PASSWORD_RULE_MESSAGE
     }
 
-    if (form.password !== form.confirmPassword) {
-      setError('Password and confirm password do not match.')
+    if (!/[A-Z]/.test(password)) {
+      return PASSWORD_RULE_MESSAGE
+    }
+
+    if (!/[a-z]/.test(password)) {
+      return PASSWORD_RULE_MESSAGE
+    }
+
+    if (!/\d/.test(password)) {
+      return PASSWORD_RULE_MESSAGE
+    }
+
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      return PASSWORD_RULE_MESSAGE
+    }
+
+    const loweredPassword = password.toLowerCase()
+    const loweredUsername = username.trim().toLowerCase()
+    const loweredEmail = email.trim().toLowerCase()
+    const emailLocalPart = loweredEmail.includes('@')
+      ? loweredEmail.split('@')[0]
+      : loweredEmail
+
+    if (loweredUsername && loweredPassword.includes(loweredUsername)) {
+      return PASSWORD_CONTAINS_PERSONAL_INFO_MESSAGE
+    }
+
+    if (loweredEmail && (loweredPassword.includes(loweredEmail) || loweredPassword.includes(emailLocalPart))) {
+      return PASSWORD_CONTAINS_PERSONAL_INFO_MESSAGE
+    }
+
+    const commonPasswords = new Set([
+      'password',
+      'password123',
+      '123456',
+      '12345678',
+      'qwerty',
+      'qwerty123',
+      'admin',
+      'letmein',
+      'welcome',
+      'abc123',
+    ])
+
+    if (commonPasswords.has(loweredPassword)) {
+      return 'Password is too common. Choose a stronger password.'
+    }
+
+    return ''
+  }
+
+  const validateRegisterForm = () => {
+    const nextFieldErrors = {
+      username: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+    }
+
+    if (!form.username.trim()) {
+      nextFieldErrors.username = 'The name field is required.'
+    }
+
+    if (!form.email.trim()) {
+      nextFieldErrors.email = 'The email field is required.'
+    } else if (!isValidEmail(form.email.trim())) {
+      nextFieldErrors.email = 'Please enter a valid email address.'
+    }
+
+    if (!form.password.trim()) {
+      nextFieldErrors.password = 'The password field is required.'
+    } else {
+      nextFieldErrors.password = validatePasswordPolicy(
+        form.password,
+        form.username,
+        form.email
+      )
+    }
+
+    if (!form.confirmPassword.trim()) {
+      nextFieldErrors.confirmPassword = 'The confirm password field is required.'
+    } else if (form.password !== form.confirmPassword) {
+      nextFieldErrors.confirmPassword = 'Password and confirm password do not match.'
+    }
+
+    setFieldErrors(nextFieldErrors)
+
+    return Object.values(nextFieldErrors).every((message) => !message)
+  }
+
+  const submitRegister = async () => {
+    setError('')
+
+    if (!validateRegisterForm()) {
       return
     }
 
@@ -53,7 +163,7 @@ export default function RegisterPage() {
     try {
       await registerUser({
         username: form.username.trim(),
-        email: form.email.trim(),
+        email: form.email.trim().toLowerCase(),
         password: form.password,
       })
 
@@ -64,10 +174,35 @@ export default function RegisterPage() {
         },
       })
     } catch (apiError) {
+      const backendFields = apiError.data?.fields
+
+      if (backendFields) {
+        const backendPasswordMessage = (apiError.message || '').toLowerCase()
+        const backendContainsPersonalInfo =
+          backendPasswordMessage.includes('contain the username') ||
+          backendPasswordMessage.includes('contain the email')
+
+        setFieldErrors((currentErrors) => ({
+          ...currentErrors,
+          username: backendFields.username || currentErrors.username,
+          email: backendFields.email || currentErrors.email,
+          password: backendFields.password
+            ? backendContainsPersonalInfo
+              ? PASSWORD_CONTAINS_PERSONAL_INFO_MESSAGE
+              : PASSWORD_RULE_MESSAGE
+            : currentErrors.password,
+        }))
+      }
+
       setError(apiError.message || 'Registration failed. Please try again.')
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    await submitRegister()
   }
 
   return (
@@ -110,9 +245,16 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Choose a username"
                   autoComplete="username"
-                  className="h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
+                    fieldErrors.username
+                      ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
+                      : ''
+                  }`}
                 />
               </div>
+              {fieldErrors.username ? (
+                <p className="text-xs text-red-400">{fieldErrors.username}</p>
+              ) : null}
             </div>
 
             <div className="grid gap-1.5 text-left">
@@ -129,9 +271,16 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Enter your email"
                   autoComplete="email"
-                  className="h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
+                    fieldErrors.email
+                      ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
+                      : ''
+                  }`}
                 />
               </div>
+              {fieldErrors.email ? (
+                <p className="text-xs text-red-400">{fieldErrors.email}</p>
+              ) : null}
             </div>
 
             <div className="grid gap-1.5 text-left">
@@ -148,7 +297,11 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Create a password"
                   autoComplete="new-password"
-                  className="h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
+                    fieldErrors.password
+                      ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
+                      : ''
+                  }`}
                 />
                 <button
                   type="button"
@@ -159,6 +312,9 @@ export default function RegisterPage() {
                   {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
+              {fieldErrors.password ? (
+                <p className="text-xs text-red-400">{fieldErrors.password}</p>
+              ) : null}
             </div>
 
             <div className="grid gap-1.5 text-left">
@@ -175,7 +331,11 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Confirm your password"
                   autoComplete="new-password"
-                  className="h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
+                    fieldErrors.confirmPassword
+                      ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
+                      : ''
+                  }`}
                 />
                 <button
                   type="button"
@@ -186,6 +346,9 @@ export default function RegisterPage() {
                   {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
+              {fieldErrors.confirmPassword ? (
+                <p className="text-xs text-red-400">{fieldErrors.confirmPassword}</p>
+              ) : null}
             </div>
           </form>
         </CardContent>
@@ -196,7 +359,7 @@ export default function RegisterPage() {
             size="lg"
             className="h-10 w-full rounded-lg shadow-lg shadow-indigo-500/20 transition-all duration-200 transform-gpu hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/35 hover:brightness-110 active:translate-y-0 disabled:hover:translate-y-0 disabled:hover:shadow-lg disabled:hover:shadow-indigo-500/20 disabled:hover:brightness-100"
             disabled={isSubmitting}
-            onClick={handleSubmit}
+            onClick={submitRegister}
           >
             {isSubmitting ? (
               <span className="inline-flex items-center gap-2">

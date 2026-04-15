@@ -23,6 +23,10 @@ export default function LoginPage() {
 
   const [form, setForm] = useState({ username: '', password: '' })
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({
+    username: '',
+    password: '',
+  })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -32,13 +36,40 @@ export default function LoginPage() {
   const handleChange = (event) => {
     const { name, value } = event.target
     setForm((currentForm) => ({ ...currentForm, [name]: value }))
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      [name]: '',
+    }))
+
+    if (error) {
+      setError('')
+    }
+  }
+
+  const validateLoginForm = () => {
+    const nextFieldErrors = {
+      username: '',
+      password: '',
+    }
+
+    if (!form.username.trim()) {
+      nextFieldErrors.username = 'The name field is required.'
+    }
+
+    if (!form.password.trim()) {
+      nextFieldErrors.password = 'The password field is required.'
+    }
+
+    setFieldErrors(nextFieldErrors)
+
+    return !nextFieldErrors.username && !nextFieldErrors.password
   }
 
   const submitLogin = async () => {
     setError('')
 
-    if (!form.username.trim() || !form.password.trim()) {
-      setError('Username and password are required.')
+    if (!validateLoginForm()) {
       return
     }
 
@@ -59,6 +90,16 @@ export default function LoginPage() {
 
       navigate(fromPath, { replace: true })
     } catch (apiError) {
+      const backendFields = apiError.data?.fields
+
+      if (backendFields) {
+        setFieldErrors((currentErrors) => ({
+          ...currentErrors,
+          username: backendFields.username || currentErrors.username,
+          password: backendFields.password || currentErrors.password,
+        }))
+      }
+
       setError(apiError.message || 'Login failed. Please try again.')
     } finally {
       setIsSubmitting(false)
@@ -116,9 +157,16 @@ export default function LoginPage() {
                   onChange={handleChange}
                   placeholder="Your username"
                   autoComplete="username"
-                  className="h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
+                    fieldErrors.username
+                      ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
+                      : ''
+                  }`}
                 />
               </div>
+              {fieldErrors.username ? (
+                <p className="text-xs text-red-400">{fieldErrors.username}</p>
+              ) : null}
             </div>
 
             <div className="grid gap-1.5 text-left">
@@ -137,7 +185,11 @@ export default function LoginPage() {
                   onChange={handleChange}
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
+                    fieldErrors.password
+                      ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
+                      : ''
+                  }`}
                 />
                 <button
                   type="button"
@@ -148,6 +200,9 @@ export default function LoginPage() {
                   {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
+              {fieldErrors.password ? (
+                <p className="text-xs text-red-400">{fieldErrors.password}</p>
+              ) : null}
             </div>
           </form>
         </CardContent>
