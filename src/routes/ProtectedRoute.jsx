@@ -3,12 +3,8 @@ import useAuth from '../hooks/useAuth'
 import { ROUTES } from '../constants/routes'
 
 export default function ProtectedRoute() {
-  const { isAuthenticated, isHydrated } = useAuth()
+  const { isAuthenticated } = useAuth()
   const location = useLocation()
-
-  if (!isHydrated) {
-    return <p>Loading session...</p>
-  }
 
   if (!isAuthenticated) {
     return <Navigate to={ROUTES.login} replace state={{ from: location }} />

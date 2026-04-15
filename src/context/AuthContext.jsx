@@ -47,26 +47,12 @@ function writeStoredSession(session) {
  * AuthProvider component to wrap the app and provide authentication state.
  */
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [isHydrated, setIsHydrated] = useState(false)
+  const [user, setUser] = useState(() => readStoredSession()?.user ?? null)
+  const isHydrated = true
 
   useEffect(() => {
-    const storedSession = readStoredSession()
-
-    if (storedSession?.user) {
-      setUser(storedSession.user)
-    }
-
-    setIsHydrated(true)
-  }, [])
-
-  useEffect(() => {
-    if (!isHydrated) {
-      return
-    }
-
     writeStoredSession(user ? { user } : null)
-  }, [isHydrated, user])
+  }, [user])
 
   const value = useMemo(
     () => ({
@@ -86,7 +72,7 @@ export function AuthProvider({ children }) {
         )
       },
     }),
-    [isHydrated, user]
+    [user]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

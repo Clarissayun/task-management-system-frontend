@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      ;(() => {
+        const THEME_STORAGE_KEY = 'task-management-system-theme'
+
+        try {
+          const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+          const resolvedTheme =
+            storedTheme === 'light' || storedTheme === 'dark'
+              ? storedTheme
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+
+          const root = document.documentElement
+          root.classList.remove('light', 'dark')
+          root.classList.add(resolvedTheme)
+        } catch {
+          document.documentElement.classList.add('light')
+        }
+      })()
+    </script>
     <title>task-management-system-frontend</title>
   </head>
   <body>
