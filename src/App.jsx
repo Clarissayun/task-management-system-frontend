@@ -4,6 +4,7 @@ import AppLayout from './layouts/AppLayout'
 import AuthLayout from './layouts/AuthLayout'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
+import LandingPage from './pages/LandingPage'
 import NotFoundPage from './pages/NotFoundPage'
 import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
@@ -14,7 +15,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path={ROUTES.root} element={<Navigate to={ROUTES.login} replace />} />
+        <Route path={ROUTES.root} element={<LandingPage />} />
 
         <Route element={<PublicOnlyRoute />}>
           <Route element={<AuthLayout />}>

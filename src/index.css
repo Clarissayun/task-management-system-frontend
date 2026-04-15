@@ -94,7 +94,13 @@
 
   --sidebar-border: oklch(0.922 0 0);
 
-  --sidebar-ring: oklch(0.708 0 0)
+  --sidebar-ring: oklch(0.708 0 0);
+
+  --landing-base: radial-gradient(140% 120% at 10% 0%, #eff6ff 0%, #f5f3ff 38%, #ffffff 100%);
+  --landing-glow-1: rgba(59, 130, 246, 0.35);
+  --landing-glow-2: rgba(168, 85, 247, 0.28);
+  --landing-glow-3: rgba(99, 102, 241, 0.22);
+  --landing-pattern: rgba(15, 23, 42, 0.05);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -122,11 +128,8 @@ body {
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
+  width: 100%;
   text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -252,6 +255,52 @@ code {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  --landing-base: radial-gradient(140% 120% at 10% 0%, #070f1f 0%, #090b17 45%, #04050b 100%);
+  --landing-glow-1: rgba(59, 130, 246, 0.45);
+  --landing-glow-2: rgba(168, 85, 247, 0.42);
+  --landing-glow-3: rgba(99, 102, 241, 0.32);
+  --landing-pattern: rgba(255, 255, 255, 0.02);
+}
+
+.light {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  --landing-base: radial-gradient(140% 120% at 10% 0%, #eff6ff 0%, #f5f3ff 38%, #ffffff 100%);
+  --landing-glow-1: rgba(59, 130, 246, 0.35);
+  --landing-glow-2: rgba(168, 85, 247, 0.28);
+  --landing-glow-3: rgba(99, 102, 241, 0.22);
+  --landing-pattern: rgba(15, 23, 42, 0.05);
 }
 
 @layer base {
