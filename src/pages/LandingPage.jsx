@@ -1,5 +1,4 @@
 import { Moon, Sun } from 'lucide-react'
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import {
@@ -9,37 +8,10 @@ import {
   TooltipTrigger,
 } from '../components/ui/tooltip'
 import { ROUTES } from '../constants/routes'
-
-const THEME_STORAGE_KEY = 'task-management-system-theme'
-
-function getInitialTheme() {
-  if (typeof window === 'undefined') {
-    return 'light'
-  }
-
-  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
-  if (storedTheme === 'light' || storedTheme === 'dark') {
-    return storedTheme
-  }
-
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
+import { useTheme } from '../hooks/useTheme'
 
 export default function LandingPage() {
-  const [theme, setTheme] = useState(getInitialTheme)
-
-  useEffect(() => {
-    const rootElement = document.documentElement
-
-    rootElement.classList.remove('light', 'dark')
-    rootElement.classList.add(theme)
-
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
-  }, [theme])
-
-  const toggleTheme = () => {
-    setTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'))
-  }
+  const { theme, toggleTheme } = useTheme()
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
