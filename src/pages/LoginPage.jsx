@@ -81,12 +81,7 @@ export default function LoginPage() {
         password: form.password,
       })
 
-      login({
-        id: response.userId,
-        userId: response.userId,
-        username: response.username,
-        email: response.email,
-      })
+      login(response)
 
       navigate(fromPath, { replace: true })
     } catch (apiError) {

@@ -1,78 +1,60 @@
 import { createContext, useEffect, useMemo, useState } from 'react'
-
-const AUTH_STORAGE_KEY = 'task-management-system-auth'
+import {
+  buildSessionFromAuthResponse,
+  clearAuthSession,
+  readAuthSession,
+  setAuthSession,
+  subscribeAuthSessionChange,
+} from '../lib/authSession'
 
 const AuthContext = createContext(undefined)
-
-/**
- * Retrieves and parses the user session from localStorage.
- * Includes a safety check for non-browser environments and corrupted JSON.
- */
-function readStoredSession() {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  const storedSession = window.localStorage.getItem(AUTH_STORAGE_KEY)
-
-  if (!storedSession) {
-    return null
-  }
-
-  try {
-    return JSON.parse(storedSession)
-  } catch {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY)
-    return null
-  }
-}
-
-/**
- * Persists the session to localStorage or removes it if null.
- */
-function writeStoredSession(session) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  if (session) {
-    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
-    return
-  }
-
-  window.localStorage.removeItem(AUTH_STORAGE_KEY)
-}
 
 /**
  * AuthProvider component to wrap the app and provide authentication state.
  */
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => readStoredSession()?.user ?? null)
+  const [session, setSession] = useState(() => readAuthSession())
+  const user = session?.user ?? null
   const isHydrated = true
 
   useEffect(() => {
-    writeStoredSession(user ? { user } : null)
-  }, [user])
+    const unsubscribe = subscribeAuthSessionChange((nextSession) => {
+      setSession(nextSession)
+    })
+
+    return unsubscribe
+  }, [])
 
   const value = useMemo(
     () => ({
       user,
-      isAuthenticated: Boolean(user),
+      accessToken: session?.accessToken ?? null,
+      refreshToken: session?.refreshToken ?? null,
+      tokenType: session?.tokenType ?? 'Bearer',
+      isAuthenticated: Boolean(session?.accessToken && user),
       isHydrated,
-      setUser,
-      login: (sessionUser) => {
-        setUser(sessionUser)
+      login: (authResponse) => {
+        const nextSession = buildSessionFromAuthResponse(authResponse)
+        setAuthSession(nextSession)
       },
       logout: () => {
-        setUser(null)
+        clearAuthSession()
       },
       updateUser: (updates) => {
-        setUser((currentUser) =>
-          currentUser ? { ...currentUser, ...updates } : currentUser
+        setAuthSession(
+          session?.user
+            ? {
+                ...session,
+                user: {
+                  ...session.user,
+                  ...updates,
+                },
+              }
+            : session
         )
       },
     }),
-    [user]
+    [session, user]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

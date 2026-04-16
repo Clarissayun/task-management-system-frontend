@@ -10,6 +10,11 @@ export const loginUser = async (payload) => {
   return data
 }
 
+export const refreshAuthToken = async (payload) => {
+  const { data } = await api.post('/auth/refresh', payload)
+  return data
+}
+
 export const getUserById = async (userId) => {
   const { data } = await api.get(`/auth/user/${userId}`)
   return data
