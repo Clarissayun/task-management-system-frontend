@@ -14,7 +14,7 @@ import { ROUTES } from '../../constants/routes'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, href: ROUTES.dashboard },
-  { id: 'tasks', label: 'Tasks', icon: ListTodo, href: '#' },
+  { id: 'tasks', label: 'Tasks', icon: ListTodo, href: ROUTES.tasks },
   { id: 'calendar', label: 'Calendar', icon: Calendar, href: '#' },
   { id: 'projects', label: 'Projects', icon: FolderOpen, href: ROUTES.projects },
   { id: 'docs', label: 'Docs', icon: FileText, href: '#' },

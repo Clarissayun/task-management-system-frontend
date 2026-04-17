@@ -10,6 +10,7 @@ import ProfilePage from './pages/ProfilePage'
 import ProjectsPage from './pages/ProjectsPage'
 import ProjectTasksPage from './pages/ProjectTasksPage'
 import RegisterPage from './pages/RegisterPage'
+import TaskPage from './pages/TaskPage'
 import ProtectedRoute from './routes/ProtectedRoute'
 import PublicOnlyRoute from './routes/PublicOnlyRoute'
 
@@ -29,6 +30,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path={ROUTES.dashboard} element={<DashboardPage />} />
+            <Route path={ROUTES.tasks} element={<TaskPage />} />
             <Route path={ROUTES.projects} element={<ProjectsPage />} />
             <Route path={ROUTES.projectTasks} element={<ProjectTasksPage />} />
             <Route path={ROUTES.profile} element={<ProfilePage />} />
