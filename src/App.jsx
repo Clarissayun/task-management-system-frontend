@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import LandingPage from './pages/LandingPage'
 import NotFoundPage from './pages/NotFoundPage'
 import ProfilePage from './pages/ProfilePage'
+import ProjectsPage from './pages/ProjectsPage'
 import RegisterPage from './pages/RegisterPage'
 import ProtectedRoute from './routes/ProtectedRoute'
 import PublicOnlyRoute from './routes/PublicOnlyRoute'
@@ -27,6 +28,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path={ROUTES.dashboard} element={<DashboardPage />} />
+            <Route path={ROUTES.projects} element={<ProjectsPage />} />
             <Route path={ROUTES.profile} element={<ProfilePage />} />
           </Route>
         </Route>
