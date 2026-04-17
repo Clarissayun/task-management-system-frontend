@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Plus, Trash2, X } from 'lucide-react'
 import {
-  createTask,
+  deleteAllTasksByUserId,
   deleteTask,
-  getTasksByPriority,
-  getTasksByStatus,
-  getTasksByUserId,
+  getTaskById,
+  getTasks,
+  saveTask,
   updateTask,
   updateTaskStatus,
 } from '../api/tasks.api'
+import {
+  createProject,
+  deleteProject,
+  getProjectById,
+  getProjects,
+  getProjectsByStatus,
+  updateProject,
+} from '../api/projects.api'
 import { Button } from '../components/ui/button'
 import {
   Card,
@@ -26,9 +34,26 @@ import useAuth from '../hooks/useAuth'
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH']
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE']
+const PROJECT_STATUSES = ['ACTIVE', 'ARCHIVED', 'COMPLETED']
+const PERSONAL_SCOPE_ID = '__PERSONAL_SCOPE__'
+const PROJECT_FILTER_ALL = 'ALL'
 
 function getUserId(user) {
   return user?.userId || user?.id || null
+}
+
+function formatStatus(value) {
+  if (value === 'TODO') return 'To Do'
+  if (value === 'IN_PROGRESS') return 'In Progress'
+  if (value === 'DONE') return 'Done'
+  return value || '-'
+}
+
+function formatProjectStatus(value) {
+  if (value === 'ACTIVE') return 'Active'
+  if (value === 'ARCHIVED') return 'Archived'
+  if (value === 'COMPLETED') return 'Completed'
+  return value || '-'
 }
 
 function formatDate(dateValue) {
@@ -49,8 +74,14 @@ export default function DashboardPage() {
   const { user } = useAuth()
 
   const [tasks, setTasks] = useState([])
+  const [projects, setProjects] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSubmittingProject, setIsSubmittingProject] = useState(false)
+  const [deletingProjectId, setDeletingProjectId] = useState(null)
+  const [isClearingPersonalTasks, setIsClearingPersonalTasks] = useState(false)
+  const [loadingEditTaskId, setLoadingEditTaskId] = useState(null)
   const [deletingTaskId, setDeletingTaskId] = useState(null)
   const [updatingStatusTaskId, setUpdatingStatusTaskId] = useState(null)
   const [savingEditTaskId, setSavingEditTaskId] = useState(null)
@@ -65,14 +96,55 @@ export default function DashboardPage() {
     status: 'ALL',
     priority: 'ALL',
   })
+  const [projectStatusFilter, setProjectStatusFilter] = useState(PROJECT_FILTER_ALL)
+  const [selectedProjectId, setSelectedProjectId] = useState(PERSONAL_SCOPE_ID)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [projectModalMode, setProjectModalMode] = useState('create')
   const [form, setForm] = useState({
     title: '',
     description: '',
     priority: 'LOW',
   })
+  const [projectForm, setProjectForm] = useState({
+    name: '',
+    description: '',
+    status: 'ACTIVE',
+  })
 
   const userId = useMemo(() => getUserId(user), [user])
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) || null,
+    [projects, selectedProjectId]
+  )
+  const isProjectScope = selectedProjectId !== PERSONAL_SCOPE_ID
+  const scopeProjectId = isProjectScope ? selectedProjectId : null
+
+  const loadProjects = useCallback(async () => {
+    setIsLoadingProjects(true)
+
+    try {
+      const response =
+        projectStatusFilter === PROJECT_FILTER_ALL
+          ? await getProjects()
+          : await getProjectsByStatus(projectStatusFilter)
+
+      const nextProjects = Array.isArray(response) ? response : []
+      setProjects(nextProjects)
+
+      if (
+        selectedProjectId !== PERSONAL_SCOPE_ID &&
+        !nextProjects.some((project) => project.id === selectedProjectId)
+      ) {
+        setSelectedProjectId(PERSONAL_SCOPE_ID)
+      }
+    } catch (apiError) {
+      setProjects([])
+      setError(apiError.message || 'Failed to load projects.')
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }, [projectStatusFilter, selectedProjectId])
 
   const loadTasks = useCallback(async () => {
     if (!userId) {
@@ -86,23 +158,14 @@ export default function DashboardPage() {
     setError('')
 
     try {
-      let response
-
-      if (filters.status !== 'ALL' && filters.priority === 'ALL') {
-        response = await getTasksByStatus(userId, filters.status)
-      } else if (filters.status === 'ALL' && filters.priority !== 'ALL') {
-        response = await getTasksByPriority(userId, filters.priority)
-      } else {
-        response = await getTasksByUserId(userId)
-      }
+      const response = await getTasks({
+        userId,
+        projectId: scopeProjectId,
+        status: filters.status !== 'ALL' ? filters.status : null,
+        priority: filters.priority !== 'ALL' ? filters.priority : null,
+      })
 
       let nextTasks = Array.isArray(response) ? response : []
-
-      if (filters.status !== 'ALL' && filters.priority !== 'ALL') {
-        nextTasks = nextTasks.filter(
-          (task) => task.status === filters.status && task.priority === filters.priority
-        )
-      }
 
       setTasks(nextTasks)
     } catch (apiError) {
@@ -111,7 +174,7 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [filters.priority, filters.status, userId])
+  }, [filters.priority, filters.status, scopeProjectId, userId])
 
   const handleFormChange = (event) => {
     const { name, value } = event.target
@@ -139,7 +202,9 @@ export default function DashboardPage() {
     setError('')
 
     try {
-      await createTask(userId, {
+      await saveTask({
+        userId,
+        projectId: scopeProjectId,
         title: form.title.trim(),
         description: form.description.trim(),
         priority: form.priority,
@@ -183,6 +248,150 @@ export default function DashboardPage() {
     setIsCreateOpen(true)
   }
 
+  const openCreateProject = () => {
+    setProjectModalMode('create')
+    setProjectForm({
+      name: '',
+      description: '',
+      status: 'ACTIVE',
+    })
+    setIsProjectModalOpen(true)
+  }
+
+  const openEditProject = async () => {
+    if (!isProjectScope || !selectedProjectId) {
+      return
+    }
+
+    setError('')
+
+    try {
+      const project = await getProjectById(selectedProjectId)
+
+      setProjectModalMode('edit')
+      setProjectForm({
+        name: project?.name || '',
+        description: project?.description || '',
+        status: project?.status || 'ACTIVE',
+      })
+      setIsProjectModalOpen(true)
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to load project details.')
+    }
+  }
+
+  const closeProjectModal = () => {
+    setIsProjectModalOpen(false)
+    setProjectForm({
+      name: '',
+      description: '',
+      status: 'ACTIVE',
+    })
+  }
+
+  const handleProjectFormChange = (event) => {
+    const { name, value } = event.target
+
+    setProjectForm((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }))
+  }
+
+  const handleSaveProject = async (event) => {
+    event.preventDefault()
+
+    if (!projectForm.name.trim()) {
+      setError('Project name is required.')
+      return
+    }
+
+    setIsSubmittingProject(true)
+    setError('')
+
+    try {
+      const payload = {
+        name: projectForm.name.trim(),
+        description: projectForm.description.trim(),
+        status: projectForm.status,
+      }
+
+      if (projectModalMode === 'edit' && selectedProjectId) {
+        await updateProject(selectedProjectId, payload)
+      } else {
+        const createdProject = await createProject(payload)
+        if (createdProject?.id) {
+          setSelectedProjectId(createdProject.id)
+        }
+      }
+
+      closeProjectModal()
+      await loadProjects()
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to save project.')
+    } finally {
+      setIsSubmittingProject(false)
+    }
+  }
+
+  const handleDeleteProject = async () => {
+    if (!isProjectScope || !selectedProjectId) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Delete this project and all tasks inside it? This action cannot be undone.'
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingProjectId(selectedProjectId)
+    setError('')
+
+    try {
+      await deleteProject(selectedProjectId)
+      setSelectedProjectId(PERSONAL_SCOPE_ID)
+      await loadProjects()
+      await loadTasks()
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to delete project.')
+    } finally {
+      setDeletingProjectId(null)
+    }
+  }
+
+  const handleClearCurrentScopeTasks = async () => {
+    if (!userId) {
+      return
+    }
+
+    const scopeLabel = isProjectScope
+      ? `project "${selectedProject?.name || 'selected project'}"`
+      : 'personal tasks'
+
+    const confirmed = window.confirm(
+      `Delete all tasks in the current ${scopeLabel}? This action cannot be undone.`
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setIsClearingPersonalTasks(true)
+    setError('')
+
+    try {
+      await deleteAllTasksByUserId(userId, isProjectScope ? selectedProjectId : null)
+      await loadTasks()
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to clear tasks for the current scope.')
+    } finally {
+      setIsClearingPersonalTasks(false)
+    }
+  }
+
   const closeCreateTask = () => {
     setIsCreateOpen(false)
     setForm({
@@ -210,13 +419,28 @@ export default function DashboardPage() {
     }
   }
 
-  const startEditTask = (task) => {
-    setEditingTaskId(task.id)
-    setEditForm({
-      title: task.title || '',
-      description: task.description || '',
-      priority: task.priority || 'LOW',
-    })
+  const startEditTask = async (task) => {
+    if (!task?.id) {
+      return
+    }
+
+    setLoadingEditTaskId(task.id)
+    setError('')
+
+    try {
+      const freshTask = await getTaskById(task.id)
+
+      setEditingTaskId(freshTask.id)
+      setEditForm({
+        title: freshTask.title || '',
+        description: freshTask.description || '',
+        priority: freshTask.priority || 'LOW',
+      })
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to load task details.')
+    } finally {
+      setLoadingEditTaskId(null)
+    }
   }
 
   const cancelEditTask = () => {
@@ -285,6 +509,10 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+    loadProjects()
+  }, [loadProjects])
+
+  useEffect(() => {
     loadTasks()
   }, [loadTasks])
 
@@ -301,11 +529,99 @@ export default function DashboardPage() {
     <div className="space-y-5 pb-4 sm:space-y-6 sm:pb-6">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">My Tasks</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Task Workspace</h1>
         <p className="text-muted-foreground">
-          Manage and track all your tasks in one place
+          {isProjectScope
+            ? `Managing tasks in ${selectedProject?.name || 'selected project'}`
+            : 'Managing standalone personal tasks'}
         </p>
       </div>
+
+      {/* Project Scope Controls */}
+      <Card className="border-border/50 bg-background/50 backdrop-blur-sm">
+        <CardHeader>
+          <CardTitle className="text-lg">Project Scope</CardTitle>
+          <CardDescription>
+            Choose where tasks should be created and managed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 lg:grid-cols-3">
+            <select
+              value={projectStatusFilter}
+              onChange={(event) => setProjectStatusFilter(event.target.value)}
+              className="w-full rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-sm transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+            >
+              <option value={PROJECT_FILTER_ALL}>All Project Status</option>
+              {PROJECT_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatProjectStatus(status)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedProjectId}
+              onChange={(event) => setSelectedProjectId(event.target.value)}
+              className="w-full rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-sm transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+            >
+              <option value={PERSONAL_SCOPE_ID}>Personal Tasks (Standalone)</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name} ({formatProjectStatus(project.status)})
+                </option>
+              ))}
+            </select>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={openCreateProject}>
+                New Project
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={openEditProject}
+                disabled={!isProjectScope || isLoadingProjects}
+              >
+                Edit Project
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDeleteProject}
+                disabled={!isProjectScope || deletingProjectId === selectedProjectId}
+              >
+                {deletingProjectId === selectedProjectId ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Project'
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {isLoadingProjects ? (
+            <p className="text-sm text-muted-foreground">Loading projects...</p>
+          ) : isProjectScope ? (
+            <div className="rounded-lg border border-border/50 bg-background/30 px-4 py-3">
+              <p className="text-sm font-medium">{selectedProject?.name || '-'}</p>
+              <p className="text-xs text-muted-foreground">
+                {selectedProject?.description || 'No project description'}
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border/50 bg-background/30 px-4 py-3">
+              <p className="text-sm font-medium">Personal Standalone Scope</p>
+              <p className="text-xs text-muted-foreground">
+                Tasks created here are not linked to a project.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -367,7 +683,7 @@ export default function DashboardPage() {
               <option value="ALL">All Status</option>
               {STATUSES.map((status) => (
                 <option key={status} value={status}>
-                  {status === 'TODO' ? 'To Do' : status === 'IN_PROGRESS' ? 'In Progress' : 'Done'}
+                  {formatStatus(status)}
                 </option>
               ))}
             </select>
@@ -406,7 +722,26 @@ export default function DashboardPage() {
           className="w-full gap-2 shadow-lg shadow-indigo-500/20 transition-all duration-200 transform-gpu hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/35 hover:brightness-110 active:translate-y-0 disabled:hover:translate-y-0 disabled:hover:shadow-lg disabled:hover:shadow-indigo-500/20 disabled:hover:brightness-100 sm:w-auto"
         >
           <Plus className="h-4 w-4" />
-          Add Task
+          {isProjectScope ? 'Add Task to Project' : 'Add Personal Task'}
+        </Button>
+
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={handleClearCurrentScopeTasks}
+          disabled={isClearingPersonalTasks}
+          className="w-full sm:w-auto"
+        >
+          {isClearingPersonalTasks ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Clearing...
+            </>
+          ) : isProjectScope ? (
+            'Clear Project Tasks'
+          ) : (
+            'Clear Personal Tasks'
+          )}
         </Button>
       </div>
 
@@ -430,7 +765,9 @@ export default function DashboardPage() {
             <p className="text-muted-foreground">
               {filters.status !== 'ALL' || filters.priority !== 'ALL'
                 ? 'No tasks found for the selected filters.'
-                : 'No tasks yet. Create one to get started!'}
+                : isProjectScope
+                  ? 'No tasks in this project yet. Create one to get started!'
+                  : 'No personal tasks yet. Create one to get started!'}
             </p>
           </CardContent>
         </Card>
@@ -486,7 +823,7 @@ export default function DashboardPage() {
                       >
                         {STATUSES.map((status) => (
                           <option key={status} value={status}>
-                            {status === 'TODO' ? 'To Do' : status === 'IN_PROGRESS' ? 'In Progress' : 'Done'}
+                            {formatStatus(status)}
                           </option>
                         ))}
                       </select>
@@ -501,7 +838,14 @@ export default function DashboardPage() {
                       disabled={deletingTaskId === task.id || updatingStatusTaskId === task.id}
                       className="flex-1"
                     >
-                      Edit
+                      {loadingEditTaskId === task.id ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        'Edit'
+                      )}
                     </Button>
                   </div>
                 </CardContent>
@@ -544,7 +888,7 @@ export default function DashboardPage() {
                           >
                             {STATUSES.map((status) => (
                               <option key={status} value={status}>
-                                {status === 'TODO' ? 'To Do' : status === 'IN_PROGRESS' ? 'In Progress' : 'Done'}
+                                {formatStatus(status)}
                               </option>
                             ))}
                           </select>
@@ -564,10 +908,14 @@ export default function DashboardPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => startEditTask(task)}
-                            disabled={deletingTaskId === task.id || updatingStatusTaskId === task.id}
+                            disabled={
+                              deletingTaskId === task.id ||
+                              updatingStatusTaskId === task.id ||
+                              loadingEditTaskId === task.id
+                            }
                             className="text-muted-foreground hover:text-foreground"
                           >
-                            Edit
+                            {loadingEditTaskId === task.id ? 'Loading...' : 'Edit'}
                           </Button>
                           <Button
                             type="button"
@@ -677,13 +1025,105 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Create / Edit Project Modal */}
+      {isProjectModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+          <Card className="w-full max-w-md border-border/60 bg-background/95 shadow-2xl">
+            <CardHeader className="border-b border-border/60">
+              <div className="flex items-center justify-between gap-4">
+                <CardTitle>
+                  {projectModalMode === 'edit' ? 'Edit Project' : 'Create New Project'}
+                </CardTitle>
+                <Button type="button" variant="ghost" size="icon" onClick={closeProjectModal}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <form onSubmit={handleSaveProject} className="space-y-4">
+              <CardContent className="space-y-4 pt-6">
+                <div className="space-y-2">
+                  <Label htmlFor="project-name">Project Name</Label>
+                  <Input
+                    id="project-name"
+                    name="name"
+                    value={projectForm.name}
+                    onChange={handleProjectFormChange}
+                    placeholder="Website Redesign"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="project-description">Description</Label>
+                  <textarea
+                    id="project-description"
+                    name="description"
+                    value={projectForm.description}
+                    onChange={handleProjectFormChange}
+                    placeholder="Project goals and notes..."
+                    rows={4}
+                    className="w-full resize-none rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-sm transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="project-status">Status</Label>
+                  <select
+                    id="project-status"
+                    name="status"
+                    value={projectForm.status}
+                    onChange={handleProjectFormChange}
+                    className="w-full rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-sm transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  >
+                    {PROJECT_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {formatProjectStatus(status)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </CardContent>
+              <CardFooter className="flex gap-2 border-t border-border/60">
+                <Button
+                  type="submit"
+                  disabled={isSubmittingProject || !projectForm.name.trim()}
+                  className="flex-1"
+                >
+                  {isSubmittingProject ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : projectModalMode === 'edit' ? (
+                    'Save Project'
+                  ) : (
+                    'Create Project'
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={closeProjectModal}
+                  disabled={isSubmittingProject}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        </div>
+      ) : null}
+
       {/* Create Task Modal */}
       {isCreateOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
           <Card className="w-full max-w-md border-border/60 bg-background/95 shadow-2xl">
             <CardHeader className="border-b border-border/60">
               <div className="flex items-center justify-between gap-4">
-                <CardTitle>Create New Task</CardTitle>
+                <CardTitle>
+                  {isProjectScope ? 'Create Task in Project' : 'Create Personal Task'}
+                </CardTitle>
                 <Button type="button" variant="ghost" size="icon" onClick={closeCreateTask}>
                   <X className="h-4 w-4" />
                 </Button>
