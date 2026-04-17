@@ -4,5 +4,6 @@ export const ROUTES = {
   register: '/register',
   dashboard: '/dashboard',
   projects: '/projects',
+  projectTasks: '/projects/:projectId',
   profile: '/profile',
 }

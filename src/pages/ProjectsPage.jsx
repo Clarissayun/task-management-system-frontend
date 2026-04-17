@@ -18,6 +18,7 @@ import {
 import { createProject, deleteProject, getProjects, updateProject } from '../api/projects.api'
 import { getTasks } from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
+import { useNavigate } from 'react-router-dom'
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
@@ -133,6 +134,7 @@ const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0 }) => {
 // --- Main Page Component ---
 export default function ProjectsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [viewMode, setViewMode] = useState('grid') // To match the view toggle in your image
   const [projects, setProjects] = useState([])
   const [taskCountsByProjectId, setTaskCountsByProjectId] = useState({})
@@ -357,7 +359,7 @@ export default function ProjectsPage() {
   }
 
   const handleOpenProject = (projectId) => {
-    window.open(`/project/${projectId}`, '_blank')
+    navigate(`/projects/${projectId}`)
   }
 
   const closeDeleteConfirm = () => {
