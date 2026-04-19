@@ -4,6 +4,7 @@ import {
   Info,
   FolderPlus,
   Search,
+  Filter,
   List,
   LayoutGrid,
   Loader2,
@@ -56,7 +57,7 @@ const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0 }) => {
             </p>
           </div>
           
-          {/* Status Badge - Ported from VisHeart aesthetic */}
+          {/* Status Badge*/}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <Badge
               variant="secondary"
@@ -79,7 +80,7 @@ const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0 }) => {
       </CardHeader>
 
       <CardContent className="flex-1 p-3 pt-2.5 space-y-2.5">
-        {/* Metadata Grid - Following the VisHeart 2-column density */}
+        {/* Metadata Grid */}
         <div className="grid grid-cols-2 gap-y-2 text-xs">
           <div>
             <span className="text-xs text-muted-foreground block mb-0.5">Total Tasks:</span>
@@ -134,7 +135,7 @@ const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0 }) => {
           </Button>
         </div>
 
-        {/* Destructive Action - Signature VisHeart Red Button */}
+        {/* Destructive Action */}
         <Button 
           size="sm" 
           variant="destructive" 
@@ -160,6 +161,12 @@ export default function ProjectsPage() {
   const [isLoadingTaskCounts, setIsLoadingTaskCounts] = useState(true)
   const [projectsError, setProjectsError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [startDateFromFilter, setStartDateFromFilter] = useState('')
+  const [startDateToFilter, setStartDateToFilter] = useState('')
+  const [dueDateFromFilter, setDueDateFromFilter] = useState('')
+  const [dueDateToFilter, setDueDateToFilter] = useState('')
+  const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false)
   const [sortBy, setSortBy] = useState('date')
   const [currentPage, setCurrentPage] = useState(0)
   const [pageSize] = useState(8)
@@ -203,6 +210,14 @@ export default function ProjectsPage() {
       return 'name,asc'
     }
 
+    if (sortBy === 'startDateAsc') {
+      return 'startDate,asc'
+    }
+
+    if (sortBy === 'dueDateAsc') {
+      return 'dueDate,asc'
+    }
+
     return 'createdAt,desc'
   }
 
@@ -220,7 +235,12 @@ export default function ProjectsPage() {
 
     try {
       const response = await getProjectsPaginated({
+        status: statusFilter !== 'ALL' ? statusFilter : null,
         search: searchQuery.trim() || null,
+        startDateFrom: startDateFromFilter || null,
+        startDateTo: startDateToFilter || null,
+        dueDateFrom: dueDateFromFilter || null,
+        dueDateTo: dueDateToFilter || null,
         page: pageToLoad,
         size: pageSize,
         sort: getSortParam(),
@@ -300,11 +320,39 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     loadProjects(0)
-  }, [userId, searchQuery, sortBy])
+  }, [
+    userId,
+    searchQuery,
+    sortBy,
+    statusFilter,
+    startDateFromFilter,
+    startDateToFilter,
+    dueDateFromFilter,
+    dueDateToFilter,
+  ])
 
   useEffect(() => {
     setCurrentPage(0)
-  }, [searchQuery, sortBy])
+  }, [
+    searchQuery,
+    sortBy,
+    statusFilter,
+    startDateFromFilter,
+    startDateToFilter,
+    dueDateFromFilter,
+    dueDateToFilter,
+  ])
+
+  const clearFilters = () => {
+    setSearchQuery('')
+    setStatusFilter('ALL')
+    setStartDateFromFilter('')
+    setStartDateToFilter('')
+    setDueDateFromFilter('')
+    setDueDateToFilter('')
+    setSortBy('date')
+    setIsFilterPopoverOpen(false)
+  }
 
   useEffect(() => {
     const loadTaskCounts = async () => {
@@ -477,11 +525,12 @@ export default function ProjectsPage() {
       </Alert>
      
       {/* 3. Search and Sort Filter Bar*/}
-      <div className="flex flex-col sm:flex-row items-center gap-4 justify-between p-2 rounded-xl border border-border/50">
+      <div className="space-y-3 rounded-xl border border-border/50 p-2">
+        <div className="flex flex-col sm:flex-row items-center gap-4 justify-between">
         <div className="relative w-full sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input 
-            placeholder="Search projects by name..." 
+            placeholder="Search projects by name or desc..." 
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             className="pl-9 bg-background/50 border-muted/20 focus-visible:ring-primary/50"
@@ -496,13 +545,99 @@ export default function ProjectsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="date">Date Added</SelectItem>
-              <SelectItem value="alpha">Alphabetical</SelectItem>
+              <SelectItem value="alpha">Name (A to Z)</SelectItem>
+              <SelectItem value="startDateAsc">Start Date (Earliest)</SelectItem>
+              <SelectItem value="dueDateAsc">Due Date (Earliest)</SelectItem>
             </SelectContent>
           </Select>
 
+          <div className="relative">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 border-muted/20 bg-transparent"
+              onClick={() => setIsFilterPopoverOpen((open) => !open)}
+            >
+              <Filter className="mr-2 h-4 w-4" />
+              Filter
+            </Button>
+
+            {isFilterPopoverOpen ? (
+              <Card className="absolute right-0 top-11 z-20 w-[330px] border-border/60 bg-background/95 shadow-2xl">
+                <CardContent className="space-y-4 p-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground">Status</Label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="bg-transparent border-muted/20">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Statuses</SelectItem>
+                        {PROJECT_STATUSES.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status.replace('_', ' ')}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground">Category A: Project Timeline (Start Date)</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        type="date"
+                        value={startDateFromFilter}
+                        onChange={(event) => setStartDateFromFilter(event.target.value)}
+                        className="bg-background/50 border-muted/20"
+                        aria-label="Project start date from"
+                      />
+                      <Input
+                        type="date"
+                        value={startDateToFilter}
+                        onChange={(event) => setStartDateToFilter(event.target.value)}
+                        className="bg-background/50 border-muted/20"
+                        aria-label="Project start date to"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-muted-foreground">Category B: Deadlines (Due Date)</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        type="date"
+                        value={dueDateFromFilter}
+                        onChange={(event) => setDueDateFromFilter(event.target.value)}
+                        className="bg-background/50 border-muted/20"
+                        aria-label="Project due date from"
+                      />
+                      <Input
+                        type="date"
+                        value={dueDateToFilter}
+                        onChange={(event) => setDueDateToFilter(event.target.value)}
+                        className="bg-background/50 border-muted/20"
+                        aria-label="Project due date to"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" className="flex-1" onClick={clearFilters}>
+                      Clear
+                    </Button>
+                    <Button type="button" className="flex-1" onClick={() => setIsFilterPopoverOpen(false)}>
+                      Apply
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
+
           <span className="text-xs font-medium text-muted-foreground">View:</span>
 
-          {/* View Toggle - Keeping the VisHeart "Grid/List" switch aesthetic */}
+          {/* View Toggle */}
           <div className="flex items-center border border-muted/20 rounded-lg overflow-hidden bg-transparent">
              <Button 
                 variant={viewMode === 'grid' ? 'secondary' : 'ghost'} 
@@ -522,6 +657,7 @@ export default function ProjectsPage() {
              </Button>
           </div>
 
+        </div>
         </div>
       </div>
 

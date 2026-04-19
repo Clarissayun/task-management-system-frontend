@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowUpRight, Edit, FolderOpen, LayoutGrid, List, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Edit, Filter, FolderOpen, LayoutGrid, List, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { getProjects } from '../api/projects.api'
 import { deleteTask, getTasksPaginated, saveTask, updateTask, updateTaskStatus } from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
@@ -9,11 +9,19 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../compone
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Badge } from '../components/ui/badge'
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '../components/ui/select'
 import { PaginationControls } from '../components/ui/pagination-controls'
 import PriorityBadge from '../components/dashboard/PriorityBadge'
 import StatusBadge from '../components/dashboard/StatusBadge'
 
 const TASK_STATUS_FLOW = ['TODO', 'IN_PROGRESS', 'DONE']
+const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH']
 
 function getUserId(user) {
 	return user?.userId || user?.id || null
@@ -216,6 +224,13 @@ export default function TaskPage() {
 	const [listTasks, setListTasks] = useState([])
 	const [projects, setProjects] = useState([])
 	const [viewMode, setViewMode] = useState('board')
+	const [searchQuery, setSearchQuery] = useState('')
+	const [listStatusFilter, setListStatusFilter] = useState('ALL')
+	const [priorityFilter, setPriorityFilter] = useState('ALL')
+	const [dueDateFromFilter, setDueDateFromFilter] = useState('')
+	const [dueDateToFilter, setDueDateToFilter] = useState('')
+	const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false)
+	const [sortBy, setSortBy] = useState('updated')
 	const [isLoading, setIsLoading] = useState(true)
 	const [isLoadingList, setIsLoadingList] = useState(false)
 	const [error, setError] = useState('')
@@ -245,6 +260,26 @@ export default function TaskPage() {
 		dueDate: '',
 	})
 
+	const getSortParam = () => {
+		if (sortBy === 'created') {
+			return 'createdAt,desc'
+		}
+
+		if (sortBy === 'dueDate') {
+			return 'dueDate,asc'
+		}
+
+		return 'updatedAt,desc'
+	}
+
+	const buildTaskFilters = () => ({
+		search: searchQuery.trim() || null,
+		priority: priorityFilter !== 'ALL' ? priorityFilter : null,
+		dueDateFrom: dueDateFromFilter || null,
+		dueDateTo: dueDateToFilter || null,
+		sort: getSortParam(),
+	})
+
 	const loadProjectsAndFirstBoardPages = async () => {
 		if (!userId) {
 			setIsLoading(false)
@@ -264,7 +299,13 @@ export default function TaskPage() {
 
 			const boardResults = await Promise.all(
 				BOARD_STATUS_KEYS.map(async (status) => {
-					const response = await getTasksPaginated({ userId, status, page: 0, size: BOARD_PAGE_SIZE })
+					const response = await getTasksPaginated({
+						userId,
+						status,
+						page: 0,
+						size: BOARD_PAGE_SIZE,
+						...buildTaskFilters(),
+					})
 					return [status, {
 						items: Array.isArray(response?.content) ? response.content : [],
 						page: response?.number ?? 0,
@@ -306,7 +347,13 @@ export default function TaskPage() {
 		setIsLoadingList(true)
 
 		try {
-			const response = await getTasksPaginated({ userId, page: pageToLoad, size: LIST_PAGE_SIZE })
+			const response = await getTasksPaginated({
+				userId,
+				status: listStatusFilter !== 'ALL' ? listStatusFilter : null,
+				page: pageToLoad,
+				size: LIST_PAGE_SIZE,
+				...buildTaskFilters(),
+			})
 			setListTasks(Array.isArray(response?.content) ? response.content : [])
 			setListPage(response?.number ?? pageToLoad)
 			setListTotalPages(response?.totalPages || 1)
@@ -328,7 +375,7 @@ export default function TaskPage() {
 
 	useEffect(() => {
 		reloadTaskViews({ listPageToLoad: 0 })
-	}, [userId])
+	}, [userId, searchQuery, listStatusFilter, priorityFilter, dueDateFromFilter, dueDateToFilter, sortBy])
 
 		const projectNameById = useMemo(() => {
 			return projects.reduce((lookup, project) => {
@@ -473,6 +520,7 @@ export default function TaskPage() {
 				status,
 				page: nextPage,
 				size: BOARD_PAGE_SIZE,
+				...buildTaskFilters(),
 			})
 
 			setBoardPages((current) => ({
@@ -791,6 +839,16 @@ export default function TaskPage() {
 	const isConfirmingDelete =
 		pendingDeleteTaskId && String(deletingTaskId) === String(pendingDeleteTaskId)
 
+	const clearTaskFilters = () => {
+		setSearchQuery('')
+		setListStatusFilter('ALL')
+		setPriorityFilter('ALL')
+		setDueDateFromFilter('')
+		setDueDateToFilter('')
+		setSortBy('updated')
+		setIsFilterPopoverOpen(false)
+	}
+
 	if (isLoading) {
 		return (
 			<div className="flex min-h-[40vh] items-center justify-center">
@@ -823,10 +881,118 @@ export default function TaskPage() {
 			{error ? <p className="text-sm text-destructive">{error}</p> : null}
 
 			<section className="space-y-3">
-				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-					<h2 className="text-xl font-semibold tracking-tight !text-foreground">Tasks</h2>
-					<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-						<div className="flex items-center gap-3 sm:ml-2">
+					<div className="flex items-center justify-between gap-3">
+						<h2 className="text-xl font-semibold tracking-tight !text-foreground">Tasks</h2>
+				</div>
+
+				<div className="space-y-3 rounded-xl border border-border/50 p-2">
+					<div className="flex flex-col sm:flex-row items-center gap-4 justify-between">
+						<div className="relative w-full sm:max-w-sm">
+							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+							<Input
+								placeholder="Search by title or description..."
+								value={searchQuery}
+								onChange={(event) => setSearchQuery(event.target.value)}
+								className="pl-9 bg-background/50 border-muted/20"
+							/>
+						</div>
+
+						<div className="flex items-center gap-3 w-full sm:w-auto">
+							<span className="text-xs font-medium text-muted-foreground hidden lg:inline">Sort by:</span>
+							<Select value={sortBy} onValueChange={setSortBy}>
+								<SelectTrigger className="w-[180px] bg-transparent border-muted/20">
+									<SelectValue placeholder="Sort by" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="updated">Updated (Newest)</SelectItem>
+									<SelectItem value="created">Created (Newest)</SelectItem>
+									<SelectItem value="dueDate">Due Date (Earliest)</SelectItem>
+								</SelectContent>
+							</Select>
+
+							<div className="relative">
+								<Button
+									type="button"
+									variant="outline"
+									className="h-9 border-muted/20 bg-transparent"
+									onClick={() => setIsFilterPopoverOpen((open) => !open)}
+								>
+									<Filter className="mr-2 h-4 w-4" />
+									Filter
+								</Button>
+
+								{isFilterPopoverOpen ? (
+									<Card className="absolute right-0 top-11 z-20 w-[320px] border-border/60 bg-background/95 shadow-2xl">
+										<CardContent className="space-y-4 p-4">
+											<div className="space-y-2">
+												{viewMode === 'list' ? (
+													<div className="space-y-2">
+														<Label className="text-xs font-semibold text-muted-foreground">Status (List View)</Label>
+														<Select value={listStatusFilter} onValueChange={setListStatusFilter}>
+															<SelectTrigger className="bg-transparent border-muted/20">
+																<SelectValue placeholder="Status" />
+															</SelectTrigger>
+															<SelectContent>
+																<SelectItem value="ALL">All Statuses</SelectItem>
+																{BOARD_STATUS_KEYS.map((status) => (
+																	<SelectItem key={status} value={status}>
+																		{formatTaskStatusLabel(status)}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+													</div>
+												) : null}
+											</div>
+
+											<div className="space-y-2">
+												<Label className="text-xs font-semibold text-muted-foreground">Priority</Label>
+												<Select value={priorityFilter} onValueChange={setPriorityFilter}>
+													<SelectTrigger className="bg-transparent border-muted/20">
+														<SelectValue placeholder="Priority" />
+													</SelectTrigger>
+													<SelectContent>
+														<SelectItem value="ALL">All Priorities</SelectItem>
+														{TASK_PRIORITIES.map((priority) => (
+															<SelectItem key={priority} value={priority}>
+																{priority}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</div>
+
+											<div className="space-y-2">
+												<Label className="text-xs font-semibold text-muted-foreground">Due Date Range</Label>
+												<div className="grid grid-cols-2 gap-2">
+													<Input
+														type="date"
+														value={dueDateFromFilter}
+														onChange={(event) => setDueDateFromFilter(event.target.value)}
+														aria-label="Task due date from"
+													/>
+													<Input
+														type="date"
+														value={dueDateToFilter}
+														onChange={(event) => setDueDateToFilter(event.target.value)}
+														aria-label="Task due date to"
+													/>
+												</div>
+											</div>
+
+											<div className="flex gap-2">
+												<Button type="button" variant="outline" className="flex-1" onClick={clearTaskFilters}>
+													Clear
+												</Button>
+												<Button type="button" className="flex-1" onClick={() => setIsFilterPopoverOpen(false)}>
+													Apply
+												</Button>
+											</div>
+										</CardContent>
+									</Card>
+								) : null}
+							</div>
+
 							<span className="text-xs font-medium text-muted-foreground">View:</span>
 							<div className="flex items-center overflow-hidden rounded-lg border border-muted/20 bg-transparent">
 								<Button
