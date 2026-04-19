@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowLeft, Edit, LayoutGrid, List, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getProjectById, updateProject } from '../api/projects.api'
-import { deleteTask, getTasks, saveTask, updateTask, updateTaskStatus } from '../api/tasks.api'
+import { deleteTask, getTasksPaginated, saveTask, updateTask, updateTaskStatus } from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card'
@@ -10,11 +10,32 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Badge } from '../components/ui/badge'
 import { Separator } from '../components/ui/separator'
+import { PaginationControls } from '../components/ui/pagination-controls'
 import PriorityBadge from '../components/dashboard/PriorityBadge'
 import StatusBadge from '../components/dashboard/StatusBadge'
 
 const PROJECT_STATUSES = ['ACTIVE', 'ARCHIVED', 'COMPLETED']
 const TASK_STATUS_FLOW = ['TODO', 'IN_PROGRESS', 'DONE']
+
+const BOARD_PAGE_SIZE = 6
+const LIST_PAGE_SIZE = 8
+const BOARD_STATUS_KEYS = ['TODO', 'IN_PROGRESS', 'DONE']
+
+function createEmptyBoardPageState() {
+  return BOARD_STATUS_KEYS.reduce(
+    (accumulator, status) => ({
+      ...accumulator,
+      [status]: {
+        items: [],
+        page: 0,
+        totalPages: 1,
+        totalElements: 0,
+        isLoading: false,
+      },
+    }),
+    {}
+  )
+}
 
 function getUserId(user) {
   return user?.userId || user?.id || null
@@ -141,8 +162,10 @@ export default function ProjectTasksPage() {
 
   const [project, setProject] = useState(null)
   const [tasks, setTasks] = useState([])
+  const [listTasks, setListTasks] = useState([])
   const [viewMode, setViewMode] = useState('board')
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingList, setIsLoadingList] = useState(false)
   const [error, setError] = useState('')
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isSavingProject, setIsSavingProject] = useState(false)
@@ -155,20 +178,28 @@ export default function ProjectTasksPage() {
   const [pendingDeleteTask, setPendingDeleteTask] = useState(null)
   const [updatingTaskId, setUpdatingTaskId] = useState(null)
   const [deletingTaskId, setDeletingTaskId] = useState(null)
+  const [boardPages, setBoardPages] = useState(() => createEmptyBoardPageState())
+  const [listPage, setListPage] = useState(0)
+  const [listTotalPages, setListTotalPages] = useState(1)
+  const [listTotalElements, setListTotalElements] = useState(0)
   const [projectForm, setProjectForm] = useState({
     name: '',
     description: '',
     status: 'ACTIVE',
+    startDate: '',
+    dueDate: '',
   })
   const [taskForm, setTaskForm] = useState({
     title: '',
     description: '',
     priority: 'LOW',
+    dueDate: '',
   })
   const [editTaskForm, setEditTaskForm] = useState({
     title: '',
     description: '',
     priority: 'LOW',
+    dueDate: '',
   })
 
   useEffect(() => {
@@ -182,16 +213,44 @@ export default function ProjectTasksPage() {
       setError('')
 
       try {
-        const [projectResponse, taskResponse] = await Promise.all([
-          getProjectById(projectId),
-          getTasks({ userId, projectId }),
-        ])
+        const projectResponse = await getProjectById(projectId)
+
+        const boardResults = await Promise.all(
+          BOARD_STATUS_KEYS.map(async (status) => {
+            const response = await getTasksPaginated({
+              userId,
+              projectId,
+              status,
+              page: 0,
+              size: BOARD_PAGE_SIZE,
+            })
+
+            return [status, {
+              items: Array.isArray(response?.content) ? response.content : [],
+              page: response?.number ?? 0,
+              totalPages: response?.totalPages || 1,
+              totalElements: response?.totalElements || 0,
+              isLoading: false,
+            }]
+          })
+        )
+
+        const nextBoardPages = createEmptyBoardPageState()
+        boardResults.forEach(([status, pageData]) => {
+          nextBoardPages[status] = pageData
+        })
 
         setProject(projectResponse || null)
-        setTasks(Array.isArray(taskResponse) ? taskResponse : [])
+        setBoardPages(nextBoardPages)
+        setTasks(BOARD_STATUS_KEYS.flatMap((status) => nextBoardPages[status].items))
       } catch (apiError) {
         setProject(null)
         setTasks([])
+        setListTasks([])
+        setBoardPages(createEmptyBoardPageState())
+        setListPage(0)
+        setListTotalPages(1)
+        setListTotalElements(0)
         setError(apiError.message || 'Failed to load project.')
       } finally {
         setIsLoading(false)
@@ -199,6 +258,81 @@ export default function ProjectTasksPage() {
     }
 
     loadProject()
+  }, [projectId, userId])
+
+  const loadListPage = async (pageToLoad = listPage) => {
+    if (!projectId || !userId) {
+      setListTasks([])
+      setListPage(0)
+      setListTotalPages(1)
+      setListTotalElements(0)
+      return
+    }
+
+    setIsLoadingList(true)
+
+    try {
+      const response = await getTasksPaginated({
+        userId,
+        projectId,
+        page: pageToLoad,
+        size: LIST_PAGE_SIZE,
+      })
+
+      setListTasks(Array.isArray(response?.content) ? response.content : [])
+      setListPage(response?.number ?? pageToLoad)
+      setListTotalPages(response?.totalPages || 1)
+      setListTotalElements(response?.totalElements || 0)
+    } catch (apiError) {
+      setListTasks([])
+      setListPage(0)
+      setListTotalPages(1)
+      setListTotalElements(0)
+      setError(apiError.message || 'Failed to load project tasks.')
+    } finally {
+      setIsLoadingList(false)
+    }
+  }
+
+  const reloadTaskViews = async ({ listPageToLoad = listPage } = {}) => {
+    await Promise.all([
+      (async () => {
+        const projectResponse = await getProjectById(projectId)
+        const boardResults = await Promise.all(
+          BOARD_STATUS_KEYS.map(async (status) => {
+            const response = await getTasksPaginated({
+              userId,
+              projectId,
+              status,
+              page: 0,
+              size: BOARD_PAGE_SIZE,
+            })
+
+            return [status, {
+              items: Array.isArray(response?.content) ? response.content : [],
+              page: response?.number ?? 0,
+              totalPages: response?.totalPages || 1,
+              totalElements: response?.totalElements || 0,
+              isLoading: false,
+            }]
+          })
+        )
+
+        const nextBoardPages = createEmptyBoardPageState()
+        boardResults.forEach(([status, pageData]) => {
+          nextBoardPages[status] = pageData
+        })
+
+        setProject(projectResponse || null)
+        setBoardPages(nextBoardPages)
+        setTasks(BOARD_STATUS_KEYS.flatMap((status) => nextBoardPages[status].items))
+      })(),
+      loadListPage(listPageToLoad),
+    ])
+  }
+
+  useEffect(() => {
+    reloadTaskViews({ listPageToLoad: 0 })
   }, [projectId, userId])
 
   const taskCounts = useMemo(() => {
@@ -215,12 +349,98 @@ export default function ProjectTasksPage() {
 
   const boardTasks = useMemo(
     () => ({
-      TODO: tasks.filter((task) => task.status === 'TODO'),
-      IN_PROGRESS: tasks.filter((task) => task.status === 'IN_PROGRESS'),
-      DONE: tasks.filter((task) => task.status === 'DONE'),
+      TODO: boardPages.TODO.items,
+      IN_PROGRESS: boardPages.IN_PROGRESS.items,
+      DONE: boardPages.DONE.items,
     }),
-    [tasks]
+    [boardPages]
   )
+
+  const reloadBoard = async () => {
+    if (!projectId || !userId) {
+      return
+    }
+
+    const boardResults = await Promise.all(
+      BOARD_STATUS_KEYS.map(async (status) => {
+        const response = await getTasksPaginated({
+          userId,
+          projectId,
+          status,
+          page: 0,
+          size: BOARD_PAGE_SIZE,
+        })
+
+        return [status, {
+          items: Array.isArray(response?.content) ? response.content : [],
+          page: response?.number ?? 0,
+          totalPages: response?.totalPages || 1,
+          totalElements: response?.totalElements || 0,
+          isLoading: false,
+        }]
+      })
+    )
+
+    const nextBoardPages = createEmptyBoardPageState()
+    boardResults.forEach(([status, pageData]) => {
+      nextBoardPages[status] = pageData
+    })
+
+    setBoardPages(nextBoardPages)
+    setTasks(BOARD_STATUS_KEYS.flatMap((status) => nextBoardPages[status].items))
+  }
+
+  const appendBoardPage = async (status) => {
+    setBoardPages((current) => ({
+      ...current,
+      [status]: {
+        ...current[status],
+        isLoading: true,
+      },
+    }))
+
+    try {
+      const nextPage = boardPages[status].page + 1
+      const response = await getTasksPaginated({
+        userId,
+        projectId,
+        status,
+        page: nextPage,
+        size: BOARD_PAGE_SIZE,
+      })
+
+      setBoardPages((current) => ({
+        ...current,
+        [status]: {
+          items: [...current[status].items, ...(Array.isArray(response?.content) ? response.content : [])],
+          page: response?.number ?? nextPage,
+          totalPages: response?.totalPages || current[status].totalPages,
+          totalElements: response?.totalElements || current[status].totalElements,
+          isLoading: false,
+        },
+      }))
+
+      setTasks((current) => {
+        const merged = new Map(current.map((task) => [String(task?.id || task?._id), task]))
+        ;(Array.isArray(response?.content) ? response.content : []).forEach((task) => {
+          const taskId = task?.id || task?._id
+          if (taskId) {
+            merged.set(String(taskId), task)
+          }
+        })
+        return Array.from(merged.values())
+      })
+    } catch (apiError) {
+      setError(apiError.message || 'Failed to load more tasks.')
+      setBoardPages((current) => ({
+        ...current,
+        [status]: {
+          ...current[status],
+          isLoading: false,
+        },
+      }))
+    }
+  }
 
   const openEditProject = () => {
     if (!project) {
@@ -231,6 +451,8 @@ export default function ProjectTasksPage() {
       name: project.name || '',
       description: project.description || '',
       status: project.status || 'ACTIVE',
+      startDate: project.startDate || '',
+      dueDate: project.dueDate || '',
     })
     setIsEditOpen(true)
   }
@@ -266,6 +488,8 @@ export default function ProjectTasksPage() {
         name: projectForm.name.trim(),
         description: projectForm.description.trim(),
         status: projectForm.status,
+        startDate: projectForm.startDate,
+        dueDate: projectForm.dueDate,
       })
 
       setProject(updatedProject || project)
@@ -282,6 +506,7 @@ export default function ProjectTasksPage() {
       title: '',
       description: '',
       priority: 'LOW',
+      dueDate: '',
     })
     setCreateTargetStatus(targetStatus)
     setIsCreateTaskOpen(true)
@@ -318,6 +543,11 @@ export default function ProjectTasksPage() {
       return
     }
 
+    if (!taskForm.dueDate) {
+      setError('Task due date is required.')
+      return
+    }
+
     setIsSubmittingTask(true)
     setError('')
 
@@ -328,6 +558,7 @@ export default function ProjectTasksPage() {
         title: taskForm.title.trim(),
         description: taskForm.description.trim(),
         priority: taskForm.priority,
+        dueDate: taskForm.dueDate,
       })
 
       const createdTaskId = createdTask?.id || createdTask?._id
@@ -343,7 +574,7 @@ export default function ProjectTasksPage() {
       }
 
       if (finalTask) {
-        setTasks((current) => [finalTask, ...current])
+        await reloadTaskViews({ listPageToLoad: 0 })
       }
 
       setIsCreateTaskOpen(false)
@@ -352,6 +583,7 @@ export default function ProjectTasksPage() {
         title: '',
         description: '',
         priority: 'LOW',
+        dueDate: '',
       })
     } catch (apiError) {
       setError(apiError.message || 'Failed to create task.')
@@ -371,6 +603,7 @@ export default function ProjectTasksPage() {
       title: task?.title || '',
       description: task?.description || '',
       priority: task?.priority || 'LOW',
+      dueDate: task?.dueDate || '',
     })
     setIsEditTaskOpen(true)
   }
@@ -400,25 +633,24 @@ export default function ProjectTasksPage() {
       return
     }
 
+    if (!editTaskForm.dueDate) {
+      setError('Task due date is required.')
+      return
+    }
+
     setIsSavingTask(true)
     setError('')
 
     try {
-      const updatedTask = await updateTask(editingTaskId, {
+      await updateTask(editingTaskId, {
         title: editTaskForm.title.trim(),
         description: editTaskForm.description.trim(),
         priority: editTaskForm.priority,
+        dueDate: editTaskForm.dueDate,
         projectId,
       })
 
-      setTasks((current) =>
-        current.map((item) => {
-          const itemId = item?.id || item?._id
-          return String(itemId) === String(editingTaskId)
-            ? { ...item, ...(updatedTask || {}), updatedAt: new Date().toISOString() }
-            : item
-        })
-      )
+      await reloadTaskViews()
 
       setIsEditTaskOpen(false)
       setEditingTaskId(null)
@@ -442,14 +674,7 @@ export default function ProjectTasksPage() {
 
     try {
       await updateTaskStatus(taskId, nextStatus)
-      setTasks((current) =>
-        current.map((item) => {
-          const itemId = item?.id || item?._id
-          return String(itemId) === String(taskId)
-            ? { ...item, status: nextStatus, updatedAt: new Date().toISOString() }
-            : item
-        })
-      )
+      await reloadTaskViews()
     } catch (apiError) {
       setError(apiError.message || 'Failed to update task status.')
     } finally {
@@ -486,9 +711,7 @@ export default function ProjectTasksPage() {
 
     try {
       await deleteTask(taskId)
-      setTasks((current) =>
-        current.filter((item) => String(item?.id || item?._id) !== String(taskId))
-      )
+      await reloadTaskViews()
       setPendingDeleteTask(null)
     } catch (apiError) {
       setError(apiError.message || 'Failed to delete task.')
@@ -523,14 +746,7 @@ export default function ProjectTasksPage() {
 
     try {
       await updateTaskStatus(droppedTaskId, nextStatus)
-      setTasks((current) =>
-        current.map((item) => {
-          const itemId = item?.id || item?._id
-          return String(itemId) === String(droppedTaskId)
-            ? { ...item, status: nextStatus, updatedAt: new Date().toISOString() }
-            : item
-        })
-      )
+      await reloadTaskViews()
     } catch (apiError) {
       setError(apiError.message || 'Failed to move task.')
     } finally {
@@ -650,6 +866,32 @@ export default function ProjectTasksPage() {
                   />
                 </div>
 
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="project-start-date">Start Date</Label>
+                    <Input
+                      id="project-start-date"
+                      name="startDate"
+                      type="date"
+                      value={projectForm.startDate}
+                      onChange={handleProjectFormChange}
+                      className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="project-due-date">Due Date</Label>
+                    <Input
+                      id="project-due-date"
+                      name="dueDate"
+                      type="date"
+                      value={projectForm.dueDate}
+                      onChange={handleProjectFormChange}
+                      className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="project-status">Status</Label>
                   <select
@@ -716,7 +958,106 @@ export default function ProjectTasksPage() {
           </div>
         </div>
 
-        {tasks.length === 0 ? (
+        {viewMode === 'list' ? (
+          listTasks.length === 0 ? (
+            <Card className="border-border/50 bg-card/30 backdrop-blur-md shadow-sm">
+              <CardContent className="space-y-3 p-6 text-sm text-muted-foreground">
+                <p>No tasks in this project yet.</p>
+                <Button type="button" size="sm" onClick={openCreateTask}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Add New Task
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-border/50 bg-card/30 backdrop-blur-md">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="bg-foreground/5">
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-3 font-semibold">Task</th>
+                      <th className="px-4 py-3 font-semibold">Status</th>
+                      <th className="px-4 py-3 font-semibold">Priority</th>
+                      <th className="px-4 py-3 font-semibold">Updated</th>
+                      <th className="px-4 py-3 text-right font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {listTasks.map((task) => {
+                      const taskId = task?.id || task?._id
+
+                      return (
+                        <tr key={taskId} className="border-t border-border/30 hover:bg-foreground/5">
+                          <td className="px-4 py-3 align-middle">
+                            <div className="max-w-[320px]">
+                              <p className="truncate font-medium text-foreground">{task?.title || 'Untitled task'}</p>
+                              <p className="truncate text-xs text-muted-foreground">{task?.description || 'No description'}</p>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 align-middle"><StatusBadge status={task?.status} /></td>
+                          <td className="px-4 py-3 align-middle"><PriorityBadge priority={task?.priority} /></td>
+                          <td className="px-4 py-3 align-middle text-muted-foreground">{formatDate(task?.updatedAt)}</td>
+                          <td className="px-4 py-3 align-middle">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-8"
+                                onClick={() => openEditTask(task)}
+                                disabled={String(editingTaskId) === String(taskId) && isSavingTask}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8"
+                                onClick={() => handleAdvanceTaskStatus(task)}
+                                disabled={String(updatingTaskId) === String(taskId)}
+                              >
+                                {String(updatingTaskId) === String(taskId) ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  'Next'
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 text-destructive hover:text-destructive"
+                                onClick={() => handleDeleteTask(task)}
+                                disabled={String(deletingTaskId) === String(taskId)}
+                              >
+                                {String(deletingTaskId) === String(taskId) ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  'Delete'
+                                )}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {listTotalPages > 1 ? (
+                <PaginationControls
+                  currentPage={listPage}
+                  totalPages={listTotalPages}
+                  totalElements={listTotalElements}
+                  pageSize={LIST_PAGE_SIZE}
+                  isLoading={isLoadingList}
+                  onPageChange={(nextPage) => loadListPage(nextPage)}
+                />
+              ) : null}
+            </div>
+          )
+        ) : tasks.length === 0 ? (
           <Card className="border-border/50 bg-card/30 backdrop-blur-md shadow-sm">
             <CardContent className="space-y-3 p-6 text-sm text-muted-foreground">
               <p>No tasks in this project yet.</p>
@@ -726,7 +1067,7 @@ export default function ProjectTasksPage() {
               </Button>
             </CardContent>
           </Card>
-        ) : viewMode === 'board' ? (
+        ) : (
           <div className="overflow-x-auto">
             <div className="grid min-w-[920px] grid-cols-3 gap-4">
               <section
@@ -740,7 +1081,7 @@ export default function ProjectTasksPage() {
                     {taskCounts.todo}
                   </Badge>
                 </div>
-                <div className="space-y-3">
+                <div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
                   {boardTasks.TODO.map((task) => {
                     const taskId = task?.id || task?._id
 
@@ -769,6 +1110,16 @@ export default function ProjectTasksPage() {
                   Add Task
                   <Plus className="h-3.5 w-3.5" />
                 </button>
+                {boardPages.TODO.page + 1 < boardPages.TODO.totalPages ? (
+                  <button
+                    type="button"
+                    className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-background/30 px-3 text-sm font-medium text-foreground/80 transition-colors hover:bg-background/60"
+                    onClick={() => appendBoardPage('TODO')}
+                    disabled={boardPages.TODO.isLoading}
+                  >
+                    {boardPages.TODO.isLoading ? 'Loading...' : 'Load More'}
+                  </button>
+                ) : null}
               </section>
 
               <section
@@ -782,7 +1133,7 @@ export default function ProjectTasksPage() {
                     {taskCounts.inProgress}
                   </Badge>
                 </div>
-                <div className="space-y-3">
+                <div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
                   {boardTasks.IN_PROGRESS.map((task) => {
                     const taskId = task?.id || task?._id
 
@@ -811,6 +1162,16 @@ export default function ProjectTasksPage() {
                   Add Task
                   <Plus className="h-3.5 w-3.5" />
                 </button>
+                {boardPages.IN_PROGRESS.page + 1 < boardPages.IN_PROGRESS.totalPages ? (
+                  <button
+                    type="button"
+                    className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-background/30 px-3 text-sm font-medium text-foreground/80 transition-colors hover:bg-background/60"
+                    onClick={() => appendBoardPage('IN_PROGRESS')}
+                    disabled={boardPages.IN_PROGRESS.isLoading}
+                  >
+                    {boardPages.IN_PROGRESS.isLoading ? 'Loading...' : 'Load More'}
+                  </button>
+                ) : null}
               </section>
 
               <section
@@ -824,7 +1185,7 @@ export default function ProjectTasksPage() {
                     {taskCounts.completed}
                   </Badge>
                 </div>
-                <div className="space-y-3">
+                <div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
                   {boardTasks.DONE.map((task) => {
                     const taskId = task?.id || task?._id
 
@@ -853,74 +1214,17 @@ export default function ProjectTasksPage() {
                   Add Task
                   <Plus className="h-3.5 w-3.5" />
                 </button>
+                {boardPages.DONE.page + 1 < boardPages.DONE.totalPages ? (
+                  <button
+                    type="button"
+                    className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-background/30 px-3 text-sm font-medium text-foreground/80 transition-colors hover:bg-background/60"
+                    onClick={() => appendBoardPage('DONE')}
+                    disabled={boardPages.DONE.isLoading}
+                  >
+                    {boardPages.DONE.isLoading ? 'Loading...' : 'Load More'}
+                  </button>
+                ) : null}
               </section>
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-border/50 bg-card/30 backdrop-blur-md">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
-                <thead className="bg-foreground/5">
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-3 font-semibold">Task</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                    <th className="px-4 py-3 font-semibold">Priority</th>
-                    <th className="px-4 py-3 font-semibold">Updated</th>
-                    <th className="px-4 py-3 text-right font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tasks.map((task) => {
-                    const taskId = task?.id || task?._id
-
-                    return (
-                      <tr key={taskId} className="border-t border-border/30 hover:bg-foreground/5">
-                        <td className="px-4 py-3 align-middle">
-                          <div className="max-w-[320px]">
-                            <p className="truncate font-medium text-foreground">{task?.title || 'Untitled task'}</p>
-                            <p className="truncate text-xs text-muted-foreground">{task?.description || 'No description'}</p>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 align-middle"><StatusBadge status={task?.status} /></td>
-                        <td className="px-4 py-3 align-middle"><PriorityBadge priority={task?.priority} /></td>
-                        <td className="px-4 py-3 align-middle text-muted-foreground">{formatDate(task?.updatedAt)}</td>
-                        <td className="px-4 py-3 align-middle">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8"
-                              onClick={() => handleAdvanceTaskStatus(task)}
-                              disabled={String(updatingTaskId) === String(taskId)}
-                            >
-                              {String(updatingTaskId) === String(taskId) ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                'Next'
-                              )}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteTask(task)}
-                              disabled={String(deletingTaskId) === String(taskId)}
-                            >
-                              {String(deletingTaskId) === String(taskId) ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                'Delete'
-                              )}
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
             </div>
           </div>
         )}
@@ -1011,6 +1315,18 @@ export default function ProjectTasksPage() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="edit-task-due-date">Due Date</Label>
+                  <Input
+                    id="edit-task-due-date"
+                    name="dueDate"
+                    type="date"
+                    value={editTaskForm.dueDate}
+                    onChange={handleEditTaskFormChange}
+                    className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  />
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="edit-task-priority">Priority</Label>
                   <select
                     id="edit-task-priority"
@@ -1074,6 +1390,18 @@ export default function ProjectTasksPage() {
                     onChange={handleTaskFormChange}
                     rows={4}
                     className="w-full resize-none rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-sm transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="task-due-date">Due Date</Label>
+                  <Input
+                    id="task-due-date"
+                    name="dueDate"
+                    type="date"
+                    value={taskForm.dueDate}
+                    onChange={handleTaskFormChange}
+                    className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
                   />
                 </div>
 

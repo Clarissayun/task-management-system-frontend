@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowUpRight, Edit, FolderOpen, LayoutGrid, List, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { getProjects } from '../api/projects.api'
-import { deleteTask, getTasks, saveTask, updateTask, updateTaskStatus } from '../api/tasks.api'
+import { deleteTask, getTasksPaginated, saveTask, updateTask, updateTaskStatus } from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
 import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
@@ -9,6 +9,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../compone
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Badge } from '../components/ui/badge'
+import { PaginationControls } from '../components/ui/pagination-controls'
 import PriorityBadge from '../components/dashboard/PriorityBadge'
 import StatusBadge from '../components/dashboard/StatusBadge'
 
@@ -38,6 +39,26 @@ function formatTaskStatusLabel(status) {
 	if (status === 'IN_PROGRESS') return 'In Progress'
 	if (status === 'DONE') return 'Done'
 	return status || 'To Do'
+}
+
+const BOARD_PAGE_SIZE = 6
+const LIST_PAGE_SIZE = 8
+const BOARD_STATUS_KEYS = ['TODO', 'IN_PROGRESS', 'DONE']
+
+function createEmptyBoardPageState() {
+	return BOARD_STATUS_KEYS.reduce(
+		(accumulator, status) => ({
+			...accumulator,
+			[status]: {
+				items: [],
+				page: 0,
+				totalPages: 1,
+				totalElements: 0,
+				isLoading: false,
+			},
+		}),
+		{}
+	)
 }
 
 function TaskCard({
@@ -163,9 +184,11 @@ export default function TaskPage() {
 	const userId = useMemo(() => getUserId(user), [user])
 
 	const [tasks, setTasks] = useState([])
+	const [listTasks, setListTasks] = useState([])
 	const [projects, setProjects] = useState([])
 	const [viewMode, setViewMode] = useState('board')
 	const [isLoading, setIsLoading] = useState(true)
+	const [isLoadingList, setIsLoadingList] = useState(false)
 	const [error, setError] = useState('')
 	const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false)
 	const [isSubmittingTask, setIsSubmittingTask] = useState(false)
@@ -176,81 +199,106 @@ export default function TaskPage() {
 	const [pendingDeleteTask, setPendingDeleteTask] = useState(null)
 	const [updatingTaskId, setUpdatingTaskId] = useState(null)
 	const [deletingTaskId, setDeletingTaskId] = useState(null)
+	const [boardPages, setBoardPages] = useState(() => createEmptyBoardPageState())
+	const [listPage, setListPage] = useState(0)
+	const [listTotalPages, setListTotalPages] = useState(1)
+	const [listTotalElements, setListTotalElements] = useState(0)
 	const [taskForm, setTaskForm] = useState({
 		title: '',
 		description: '',
 		priority: 'LOW',
+		dueDate: '',
 	})
 	const [editTaskForm, setEditTaskForm] = useState({
 		title: '',
 		description: '',
 		priority: 'LOW',
+		dueDate: '',
 	})
 
-	useEffect(() => {
-		const loadTasks = async () => {
-			if (!userId) {
-				setIsLoading(false)
-				setProjects([])
-				return
-			}
-
-			setIsLoading(true)
-			setError('')
-
-			try {
-				const [standaloneTasks, projects] = await Promise.all([
-					getTasks({ userId }),
-					getProjects(),
-				])
-
-				const nextProjects = Array.isArray(projects) ? projects : []
-				setProjects(nextProjects)
-
-				const projectIds = nextProjects
-					.map((project) => project?.id || project?._id || project?.projectId)
-					.filter(Boolean)
-
-				const projectTaskResults = await Promise.allSettled(
-					projectIds.map((projectId) => getTasks({ userId, projectId }))
-				)
-
-				const mergedTasks = new Map()
-
-				const pushTasks = (taskList) => {
-					if (!Array.isArray(taskList)) {
-						return
-					}
-
-					taskList.forEach((task) => {
-						const taskId = task?.id || task?._id
-						if (!taskId) {
-							return
-						}
-
-						mergedTasks.set(String(taskId), task)
-					})
-				}
-
-				pushTasks(standaloneTasks)
-
-				projectTaskResults.forEach((result) => {
-					if (result.status === 'fulfilled') {
-						pushTasks(result.value)
-					}
-				})
-
-				setTasks(Array.from(mergedTasks.values()))
-			} catch (apiError) {
-				setTasks([])
-				setProjects([])
-				setError(apiError.message || 'Failed to load tasks.')
-			} finally {
-				setIsLoading(false)
-			}
+	const loadProjectsAndFirstBoardPages = async () => {
+		if (!userId) {
+			setIsLoading(false)
+			setProjects([])
+			setTasks([])
+			setBoardPages(createEmptyBoardPageState())
+			return
 		}
 
-		loadTasks()
+		setIsLoading(true)
+		setError('')
+
+		try {
+			const projectsResponse = await getProjects()
+			const nextProjects = Array.isArray(projectsResponse) ? projectsResponse : []
+			setProjects(nextProjects)
+
+			const boardResults = await Promise.all(
+				BOARD_STATUS_KEYS.map(async (status) => {
+					const response = await getTasksPaginated({ userId, status, page: 0, size: BOARD_PAGE_SIZE })
+					return [status, {
+						items: Array.isArray(response?.content) ? response.content : [],
+						page: response?.number ?? 0,
+						totalPages: response?.totalPages || 1,
+						totalElements: response?.totalElements || 0,
+						isLoading: false,
+					}]
+				})
+			)
+
+			const nextBoardPages = createEmptyBoardPageState()
+			boardResults.forEach(([status, pageData]) => {
+				nextBoardPages[status] = pageData
+			})
+
+			setBoardPages(nextBoardPages)
+			setTasks(
+				BOARD_STATUS_KEYS.flatMap((status) => nextBoardPages[status].items)
+			)
+		} catch (apiError) {
+			setProjects([])
+			setTasks([])
+			setBoardPages(createEmptyBoardPageState())
+			setError(apiError.message || 'Failed to load tasks.')
+		} finally {
+			setIsLoading(false)
+		}
+	}
+
+	const loadListPage = async (pageToLoad = listPage) => {
+		if (!userId) {
+			setListTasks([])
+			setListPage(0)
+			setListTotalPages(1)
+			setListTotalElements(0)
+			return
+		}
+
+		setIsLoadingList(true)
+
+		try {
+			const response = await getTasksPaginated({ userId, page: pageToLoad, size: LIST_PAGE_SIZE })
+			setListTasks(Array.isArray(response?.content) ? response.content : [])
+			setListPage(response?.number ?? pageToLoad)
+			setListTotalPages(response?.totalPages || 1)
+			setListTotalElements(response?.totalElements || 0)
+		} catch (apiError) {
+			setListTasks([])
+			setListPage(0)
+			setListTotalPages(1)
+			setListTotalElements(0)
+			setError(apiError.message || 'Failed to load tasks.')
+		} finally {
+			setIsLoadingList(false)
+		}
+	}
+
+	const reloadTaskViews = async ({ listPageToLoad = listPage } = {}) => {
+		await Promise.all([loadProjectsAndFirstBoardPages(), loadListPage(listPageToLoad)])
+	}
+
+	useEffect(() => {
+		reloadTaskViews({ listPageToLoad: 0 })
 	}, [userId])
 
 		const projectNameById = useMemo(() => {
@@ -283,18 +331,69 @@ export default function TaskPage() {
 
 	const boardTasks = useMemo(
 		() => ({
-			TODO: tasks.filter((task) => task.status === 'TODO'),
-			IN_PROGRESS: tasks.filter((task) => task.status === 'IN_PROGRESS'),
-			DONE: tasks.filter((task) => task.status === 'DONE'),
+			TODO: boardPages.TODO.items,
+			IN_PROGRESS: boardPages.IN_PROGRESS.items,
+			DONE: boardPages.DONE.items,
 		}),
-		[tasks]
+		[boardPages]
 	)
+
+	const appendBoardPage = async (status) => {
+		setBoardPages((current) => ({
+			...current,
+			[status]: {
+				...current[status],
+				isLoading: true,
+			},
+		}))
+
+		try {
+			const nextPage = boardPages[status].page + 1
+			const response = await getTasksPaginated({
+				userId,
+				status,
+				page: nextPage,
+				size: BOARD_PAGE_SIZE,
+			})
+
+			setBoardPages((current) => ({
+				...current,
+				[status]: {
+					items: [...current[status].items, ...(Array.isArray(response?.content) ? response.content : [])],
+					page: response?.number ?? nextPage,
+					totalPages: response?.totalPages || current[status].totalPages,
+					totalElements: response?.totalElements || current[status].totalElements,
+					isLoading: false,
+				},
+			}))
+			setTasks((current) => {
+				const merged = new Map(current.map((task) => [String(task?.id || task?._id), task]))
+				;(Array.isArray(response?.content) ? response.content : []).forEach((task) => {
+					const taskId = task?.id || task?._id
+					if (taskId) {
+						merged.set(String(taskId), task)
+					}
+				})
+				return Array.from(merged.values())
+			})
+		} catch (apiError) {
+			setError(apiError.message || 'Failed to load more tasks.')
+			setBoardPages((current) => ({
+				...current,
+				[status]: {
+					...current[status],
+					isLoading: false,
+				},
+			}))
+		}
+	}
 
 	const openCreateTask = (targetStatus = 'TODO') => {
 		setTaskForm({
 			title: '',
 			description: '',
 			priority: 'LOW',
+			dueDate: '',
 		})
 		setCreateTargetStatus(targetStatus)
 		setIsCreateTaskOpen(true)
@@ -331,6 +430,11 @@ export default function TaskPage() {
 			return
 		}
 
+		if (!taskForm.dueDate) {
+			setError('Task due date is required.')
+			return
+		}
+
 		setIsSubmittingTask(true)
 		setError('')
 
@@ -340,6 +444,7 @@ export default function TaskPage() {
 				title: taskForm.title.trim(),
 				description: taskForm.description.trim(),
 				priority: taskForm.priority,
+				dueDate: taskForm.dueDate,
 			})
 
 			const createdTaskId = createdTask?.id || createdTask?._id
@@ -355,7 +460,7 @@ export default function TaskPage() {
 			}
 
 			if (finalTask) {
-				setTasks((current) => [finalTask, ...current])
+				await reloadTaskViews({ listPageToLoad: 0 })
 			}
 
 			setIsCreateTaskOpen(false)
@@ -364,6 +469,7 @@ export default function TaskPage() {
 				title: '',
 				description: '',
 				priority: 'LOW',
+				dueDate: '',
 			})
 		} catch (apiError) {
 			setError(apiError.message || 'Failed to create task.')
@@ -383,6 +489,7 @@ export default function TaskPage() {
 			title: task?.title || '',
 			description: task?.description || '',
 			priority: task?.priority || 'LOW',
+			dueDate: task?.dueDate || '',
 		})
 		setIsEditTaskOpen(true)
 	}
@@ -412,6 +519,11 @@ export default function TaskPage() {
 			return
 		}
 
+		if (!editTaskForm.dueDate) {
+			setError('Task due date is required.')
+			return
+		}
+
 		const existingTask = tasks.find(
 			(task) => String(task?.id || task?._id) === String(editingTaskId)
 		)
@@ -424,25 +536,18 @@ export default function TaskPage() {
 				title: editTaskForm.title.trim(),
 				description: editTaskForm.description.trim(),
 				priority: editTaskForm.priority,
+				dueDate: editTaskForm.dueDate,
 			}
 
 			if (existingTask?.projectId) {
 				payload.projectId = existingTask.projectId
 			}
 
-			const updatedTask = await updateTask(editingTaskId, payload)
-
-			setTasks((current) =>
-				current.map((item) => {
-					const itemId = item?.id || item?._id
-					return String(itemId) === String(editingTaskId)
-						? { ...item, ...(updatedTask || {}), updatedAt: new Date().toISOString() }
-						: item
-				})
-			)
+			await updateTask(editingTaskId, payload)
 
 			setIsEditTaskOpen(false)
 			setEditingTaskId(null)
+			await reloadTaskViews()
 		} catch (apiError) {
 			setError(apiError.message || 'Failed to update task.')
 		} finally {
@@ -463,14 +568,7 @@ export default function TaskPage() {
 
 		try {
 			await updateTaskStatus(taskId, nextStatus)
-			setTasks((current) =>
-				current.map((item) => {
-					const itemId = item?.id || item?._id
-					return String(itemId) === String(taskId)
-						? { ...item, status: nextStatus, updatedAt: new Date().toISOString() }
-						: item
-				})
-			)
+			await reloadTaskViews()
 		} catch (apiError) {
 			setError(apiError.message || 'Failed to update task status.')
 		} finally {
@@ -507,9 +605,7 @@ export default function TaskPage() {
 
 		try {
 			await deleteTask(taskId)
-			setTasks((current) =>
-				current.filter((item) => String(item?.id || item?._id) !== String(taskId))
-			)
+			await reloadTaskViews()
 			setPendingDeleteTask(null)
 		} catch (apiError) {
 			setError(apiError.message || 'Failed to delete task.')
@@ -544,14 +640,7 @@ export default function TaskPage() {
 
 		try {
 			await updateTaskStatus(droppedTaskId, nextStatus)
-			setTasks((current) =>
-				current.map((item) => {
-					const itemId = item?.id || item?._id
-					return String(itemId) === String(droppedTaskId)
-						? { ...item, status: nextStatus, updatedAt: new Date().toISOString() }
-						: item
-				})
-			)
+			await reloadTaskViews()
 		} catch (apiError) {
 			setError(apiError.message || 'Failed to move task.')
 		} finally {
@@ -626,7 +715,7 @@ export default function TaskPage() {
 					</div>
 				</div>
 
-				{tasks.length === 0 ? (
+				{(viewMode === 'list' ? listTasks.length === 0 : tasks.length === 0) ? (
 					<Card className="border-border/50 bg-card/30 backdrop-blur-md shadow-sm">
 						<CardContent className="space-y-3 p-6 text-sm text-muted-foreground">
 							<p>No tasks yet.</p>
@@ -650,7 +739,7 @@ export default function TaskPage() {
 										{taskCounts.todo}
 									</Badge>
 								</div>
-								<div className="space-y-3">
+								<div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
 									{boardTasks.TODO.map((task) => {
 										const taskId = task?.id || task?._id
 
@@ -672,14 +761,26 @@ export default function TaskPage() {
 									})}
 									{boardTasks.TODO.length === 0 ? <p className="py-6 text-sm text-muted-foreground">No tasks in To Do.</p> : null}
 								</div>
-								<button
-									type="button"
-									className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border/70 bg-background/40 px-3 text-sm font-medium text-foreground/90 transition-colors hover:bg-background/70"
-									onClick={() => openCreateTask('TODO')}
-								>
-									Add Task
-									<Plus className="h-3.5 w-3.5" />
-								</button>
+								<div className="mt-3 space-y-2">
+									<button
+										type="button"
+										className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border/70 bg-background/40 px-3 text-sm font-medium text-foreground/90 transition-colors hover:bg-background/70"
+										onClick={() => openCreateTask('TODO')}
+									>
+										Add Task
+										<Plus className="h-3.5 w-3.5" />
+									</button>
+									{boardPages.TODO.page < boardPages.TODO.totalPages - 1 ? (
+										<button
+											type="button"
+											className="inline-flex h-9 w-full items-center justify-center rounded-md border border-dashed border-border/70 bg-background/30 px-3 text-sm font-medium text-foreground/80 transition-colors hover:bg-background/60"
+											onClick={() => appendBoardPage('TODO')}
+											disabled={boardPages.TODO.isLoading}
+										>
+											{boardPages.TODO.isLoading ? 'Loading...' : 'Load More'}
+										</button>
+									) : null}
+								</div>
 							</section>
 
 							<section
@@ -693,7 +794,7 @@ export default function TaskPage() {
 										{taskCounts.inProgress}
 									</Badge>
 								</div>
-								<div className="space-y-3">
+								<div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
 									{boardTasks.IN_PROGRESS.map((task) => {
 										const taskId = task?.id || task?._id
 
@@ -715,14 +816,26 @@ export default function TaskPage() {
 									})}
 									{boardTasks.IN_PROGRESS.length === 0 ? <p className="py-6 text-sm text-muted-foreground">No tasks in progress.</p> : null}
 								</div>
-								<button
-									type="button"
-									className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border/70 bg-background/40 px-3 text-sm font-medium text-foreground/90 transition-colors hover:bg-background/70"
-									onClick={() => openCreateTask('IN_PROGRESS')}
-								>
-									Add Task
-									<Plus className="h-3.5 w-3.5" />
-								</button>
+								<div className="mt-3 space-y-2">
+									<button
+										type="button"
+										className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border/70 bg-background/40 px-3 text-sm font-medium text-foreground/90 transition-colors hover:bg-background/70"
+										onClick={() => openCreateTask('IN_PROGRESS')}
+									>
+										Add Task
+										<Plus className="h-3.5 w-3.5" />
+									</button>
+									{boardPages.IN_PROGRESS.page < boardPages.IN_PROGRESS.totalPages - 1 ? (
+										<button
+											type="button"
+											className="inline-flex h-9 w-full items-center justify-center rounded-md border border-dashed border-border/70 bg-background/30 px-3 text-sm font-medium text-foreground/80 transition-colors hover:bg-background/60"
+											onClick={() => appendBoardPage('IN_PROGRESS')}
+											disabled={boardPages.IN_PROGRESS.isLoading}
+										>
+											{boardPages.IN_PROGRESS.isLoading ? 'Loading...' : 'Load More'}
+										</button>
+									) : null}
+								</div>
 							</section>
 
 							<section
@@ -736,7 +849,7 @@ export default function TaskPage() {
 										{taskCounts.completed}
 									</Badge>
 								</div>
-								<div className="space-y-3">
+								<div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
 									{boardTasks.DONE.map((task) => {
 										const taskId = task?.id || task?._id
 
@@ -758,14 +871,26 @@ export default function TaskPage() {
 									})}
 									{boardTasks.DONE.length === 0 ? <p className="py-6 text-sm text-muted-foreground">No completed tasks yet.</p> : null}
 								</div>
-								<button
-									type="button"
-									className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border/70 bg-background/40 px-3 text-sm font-medium text-foreground/90 transition-colors hover:bg-background/70"
-									onClick={() => openCreateTask('DONE')}
-								>
-									Add Task
-									<Plus className="h-3.5 w-3.5" />
-								</button>
+								<div className="mt-3 space-y-2">
+									<button
+										type="button"
+										className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border/70 bg-background/40 px-3 text-sm font-medium text-foreground/90 transition-colors hover:bg-background/70"
+										onClick={() => openCreateTask('DONE')}
+									>
+										Add Task
+										<Plus className="h-3.5 w-3.5" />
+									</button>
+									{boardPages.DONE.page < boardPages.DONE.totalPages - 1 ? (
+										<button
+											type="button"
+											className="inline-flex h-9 w-full items-center justify-center rounded-md border border-dashed border-border/70 bg-background/30 px-3 text-sm font-medium text-foreground/80 transition-colors hover:bg-background/60"
+											onClick={() => appendBoardPage('DONE')}
+											disabled={boardPages.DONE.isLoading}
+										>
+											{boardPages.DONE.isLoading ? 'Loading...' : 'Load More'}
+										</button>
+									) : null}
+								</div>
 							</section>
 						</div>
 					</div>
@@ -784,7 +909,7 @@ export default function TaskPage() {
 									</tr>
 								</thead>
 								<tbody>
-									{tasks.map((task) => {
+									{listTasks.map((task) => {
 										const taskId = task?.id || task?._id
 
 										return (
@@ -854,6 +979,16 @@ export default function TaskPage() {
 									})}
 								</tbody>
 							</table>
+							{listTotalPages > 1 ? (
+								<PaginationControls
+									currentPage={listPage}
+									totalPages={listTotalPages}
+									totalElements={listTotalElements}
+									pageSize={LIST_PAGE_SIZE}
+									isLoading={isLoadingList}
+									onPageChange={(nextPage) => loadListPage(nextPage)}
+								/>
+							) : null}
 						</div>
 					</div>
 				)}
@@ -944,6 +1079,18 @@ export default function TaskPage() {
 								</div>
 
 								<div className="space-y-2">
+									<Label htmlFor="edit-task-due-date">Due Date</Label>
+									<Input
+										id="edit-task-due-date"
+										name="dueDate"
+										type="date"
+										value={editTaskForm.dueDate}
+										onChange={handleEditTaskFormChange}
+										className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+									/>
+								</div>
+
+								<div className="space-y-2">
 									<Label htmlFor="edit-task-priority">Priority</Label>
 									<select
 										id="edit-task-priority"
@@ -1007,6 +1154,18 @@ export default function TaskPage() {
 										onChange={handleTaskFormChange}
 										rows={4}
 										className="w-full resize-none rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-sm transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+									/>
+								</div>
+
+								<div className="space-y-2">
+									<Label htmlFor="task-due-date">Due Date</Label>
+									<Input
+										id="task-due-date"
+										name="dueDate"
+										type="date"
+										value={taskForm.dueDate}
+										onChange={handleTaskFormChange}
+										className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
 									/>
 								</div>
 

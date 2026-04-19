@@ -15,7 +15,8 @@ import {
   Edit,
   TriangleAlert,
 } from 'lucide-react'
-import { createProject, deleteProject, getProjects, updateProject } from '../api/projects.api'
+import { createProject, deleteProject, updateProject } from '../api/projects.api'
+import { getProjectsPaginated } from '../api/projects.api'
 import { getTasks } from '../api/tasks.api'
 import useAuth from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
@@ -32,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { PaginationControls } from '../components/ui/pagination-controls'
 
 const PROJECT_STATUSES = ['ACTIVE', 'ARCHIVED', 'COMPLETED']
 
@@ -143,6 +145,10 @@ export default function ProjectsPage() {
   const [projectsError, setProjectsError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState('date')
+  const [currentPage, setCurrentPage] = useState(0)
+  const [pageSize] = useState(8)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalElements, setTotalElements] = useState(0)
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false)
   const [projectModalMode, setProjectModalMode] = useState('create')
   const [editingProjectId, setEditingProjectId] = useState(null)
@@ -156,6 +162,8 @@ export default function ProjectsPage() {
     name: '',
     description: '',
     status: 'ACTIVE',
+    startDate: '',
+    dueDate: '',
   })
 
   const openCreateProject = () => {
@@ -166,11 +174,55 @@ export default function ProjectsPage() {
       name: '',
       description: '',
       status: 'ACTIVE',
+      startDate: '',
+      dueDate: '',
     })
     setIsCreateProjectOpen(true)
   }
 
   const userId = useMemo(() => getUserId(user), [user])
+
+  const getSortParam = () => {
+    if (sortBy === 'alpha') {
+      return 'name,asc'
+    }
+
+    return 'createdAt,desc'
+  }
+
+  const loadProjects = async (pageToLoad = currentPage) => {
+    if (!userId) {
+      setProjects([])
+      setTotalPages(1)
+      setTotalElements(0)
+      setIsLoadingProjects(false)
+      return
+    }
+
+    setIsLoadingProjects(true)
+    setProjectsError('')
+
+    try {
+      const response = await getProjectsPaginated({
+        search: searchQuery.trim() || null,
+        page: pageToLoad,
+        size: pageSize,
+        sort: getSortParam(),
+      })
+
+      setProjects(Array.isArray(response?.content) ? response.content : [])
+      setTotalPages(response?.totalPages || 1)
+      setTotalElements(response?.totalElements || 0)
+      setCurrentPage(response?.number ?? pageToLoad)
+    } catch (apiError) {
+      setProjects([])
+      setTotalPages(1)
+      setTotalElements(0)
+      setProjectsError(apiError.message || 'Failed to load projects.')
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }
 
   const closeCreateProject = () => {
     if (isSubmittingProject) {
@@ -210,30 +262,18 @@ export default function ProjectsPage() {
       name: projectForm.name.trim(),
       description: projectForm.description.trim(),
       status: projectForm.status,
+      startDate: projectForm.startDate,
+      dueDate: projectForm.dueDate,
     }
 
     try {
       if (projectModalMode === 'edit' && editingProjectId) {
         const updatedProject = await updateProject(editingProjectId, payload)
-
-        setProjects((current) =>
-          current.map((project) => {
-            const currentId = project?.id || project?._id || project?.projectId
-            if (String(currentId) !== String(editingProjectId)) {
-              return project
-            }
-
-            return updatedProject || { ...project, ...payload }
-          })
-        )
       } else {
-        const createdProject = await createProject(payload)
-
-        if (createdProject) {
-          setProjects((current) => [createdProject, ...current])
-        }
+        await createProject(payload)
       }
 
+      await loadProjects(projectModalMode === 'edit' ? currentPage : 0)
       closeCreateProject()
     } catch (apiError) {
       setFormError(apiError.message || 'Failed to save project.')
@@ -243,23 +283,12 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
-    const loadProjects = async () => {
-      setIsLoadingProjects(true)
-      setProjectsError('')
+    loadProjects(0)
+  }, [userId, searchQuery, sortBy])
 
-      try {
-        const response = await getProjects()
-        setProjects(Array.isArray(response) ? response : [])
-      } catch (apiError) {
-        setProjects([])
-        setProjectsError(apiError.message || 'Failed to load projects.')
-      } finally {
-        setIsLoadingProjects(false)
-      }
-    }
-
-    loadProjects()
-  }, [])
+  useEffect(() => {
+    setCurrentPage(0)
+  }, [searchQuery, sortBy])
 
   useEffect(() => {
     const loadTaskCounts = async () => {
@@ -304,30 +333,8 @@ export default function ProjectsPage() {
   }, [projects, userId])
 
   const visibleProjects = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase()
-
-    let next = projects.filter((project) => {
-      if (!normalizedSearch) {
-        return true
-      }
-
-      const name = (project?.name || '').toLowerCase()
-      const description = (project?.description || '').toLowerCase()
-      return name.includes(normalizedSearch) || description.includes(normalizedSearch)
-    })
-
-    if (sortBy === 'alpha') {
-      next = [...next].sort((a, b) => (a?.name || '').localeCompare(b?.name || ''))
-    } else if (sortBy === 'progress') {
-      next = [...next].sort((a, b) => (b?.completionRate || 0) - (a?.completionRate || 0))
-    } else {
-      next = [...next].sort(
-        (a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime()
-      )
-    }
-
-    return next
-  }, [projects, searchQuery, sortBy])
+    return projects
+  }, [projects])
 
   const handleDeleteProject = (projectId, projectName) => {
     setProjectsError('')
@@ -354,6 +361,8 @@ export default function ProjectsPage() {
       name: target?.name || '',
       description: target?.description || '',
       status: target?.status || 'ACTIVE',
+      startDate: target?.startDate || '',
+      dueDate: target?.dueDate || '',
     })
     setIsCreateProjectOpen(true)
   }
@@ -382,13 +391,7 @@ export default function ProjectsPage() {
 
     try {
       await deleteProject(String(deletingProjectId))
-      setProjects((current) =>
-        current.filter((project) => {
-          const currentId = project?.id || project?._id || project?.projectId
-          return String(currentId) !== String(deletingProjectId)
-        })
-      )
-
+      await loadProjects(currentPage)
       setIsCreateProjectOpen(false)
       setProjectModalMode('create')
       setEditingProjectId(null)
@@ -478,7 +481,6 @@ export default function ProjectsPage() {
             <SelectContent>
               <SelectItem value="date">Date Added</SelectItem>
               <SelectItem value="alpha">Alphabetical</SelectItem>
-              <SelectItem value="progress">Progress %</SelectItem>
             </SelectContent>
           </Select>
 
@@ -645,6 +647,17 @@ export default function ProjectsPage() {
         </div>
       )}
 
+      {!isLoadingProjects && projects.length > 0 ? (
+        <PaginationControls
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalElements={totalElements}
+          pageSize={pageSize}
+          isLoading={isLoadingProjects}
+          onPageChange={(nextPage) => loadProjects(nextPage)}
+        />
+      ) : null}
+
       {isLoadingProjects || isLoadingTaskCounts ? (
         <p className="text-sm text-muted-foreground">Loading projects...</p>
       ) : null}
@@ -698,6 +711,32 @@ export default function ProjectsPage() {
                     rows={4}
                     className="w-full resize-none rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-sm transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
                   />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="project-start-date">Start Date</Label>
+                    <Input
+                      id="project-start-date"
+                      name="startDate"
+                      type="date"
+                      value={projectForm.startDate}
+                      onChange={handleProjectFormChange}
+                      className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="project-due-date">Due Date</Label>
+                    <Input
+                      id="project-due-date"
+                      name="dueDate"
+                      type="date"
+                      value={projectForm.dueDate}
+                      onChange={handleProjectFormChange}
+                      className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
