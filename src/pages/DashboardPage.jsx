@@ -86,6 +86,16 @@ export default function DashboardPage() {
       .slice(0, 4)
   }, [tasks])
 
+  const projectNameById = useMemo(() => {
+    return projects.reduce((lookup, project) => {
+      if (project?.id) {
+        lookup[project.id] = project.name || 'Untitled project'
+      }
+
+      return lookup
+    }, {})
+  }, [projects])
+
   const formatDateLabel = (dateValue) => {
     if (!dateValue) return '-'
 
@@ -289,7 +299,9 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">{task.title || 'Untitled task'}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {task.projectId ? `Project ${task.projectId}` : 'Standalone task'}
+                      {task.projectId
+                        ? `Project: ${projectNameById[task.projectId] || 'Unknown project'}`
+                        : 'Standalone task'}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

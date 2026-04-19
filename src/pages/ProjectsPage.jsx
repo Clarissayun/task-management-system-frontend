@@ -104,6 +104,22 @@ const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0 }) => {
                {new Date(project.createdAt).toLocaleDateString()}
             </div>
           </div>
+
+          <div className="text-right sm:text-left">
+            <span className="text-xs text-muted-foreground block mb-0.5">Start Date:</span>
+            <div className="flex items-center gap-1.5 font-medium text-foreground sm:justify-start justify-end">
+              <Calendar className="h-3 w-3 text-cyan-500/70" />
+              {project.startDate ? new Date(project.startDate).toLocaleDateString() : '-'}
+            </div>
+          </div>
+
+          <div>
+            <span className="text-xs text-muted-foreground block mb-0.5">Due Date:</span>
+            <div className="flex items-center gap-1.5 font-medium text-foreground">
+              <Calendar className="h-3 w-3 text-orange-500/70" />
+              {project.dueDate ? new Date(project.dueDate).toLocaleDateString() : '-'}
+            </div>
+          </div>
         </div>
 
         {/* Action Buttons - Primary Row */}
@@ -521,6 +537,8 @@ export default function ProjectsPage() {
                   <th className="px-4 py-3 font-semibold">Total Tasks</th>
                   <th className="px-4 py-3 font-semibold">Completion</th>
                   <th className="px-4 py-3 font-semibold">Created</th>
+                  <th className="px-4 py-3 font-semibold">Start Date</th>
+                  <th className="px-4 py-3 font-semibold">Due Date</th>
                   <th className="px-4 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
@@ -571,6 +589,12 @@ export default function ProjectsPage() {
                         </td>
                         <td className="px-4 py-3 align-middle text-muted-foreground">
                           {new Date(project.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 align-middle text-muted-foreground">
+                          {project.startDate ? new Date(project.startDate).toLocaleDateString() : '-'}
+                        </td>
+                        <td className="px-4 py-3 align-middle text-muted-foreground">
+                          {project.dueDate ? new Date(project.dueDate).toLocaleDateString() : '-'}
                         </td>
                         <td className="px-4 py-3 align-middle">
                           <div className="flex items-center justify-end gap-2">

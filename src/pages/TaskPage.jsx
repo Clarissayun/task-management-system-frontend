@@ -25,6 +25,26 @@ function formatDate(dateValue) {
 	return Number.isNaN(parsedDate.getTime()) ? dateValue : parsedDate.toLocaleDateString()
 }
 
+function toDateInputValue(dateValue) {
+	if (!dateValue) {
+		return ''
+	}
+
+	const parsedDate = new Date(dateValue)
+	if (Number.isNaN(parsedDate.getTime())) {
+		return ''
+	}
+
+	const year = parsedDate.getFullYear()
+	const month = String(parsedDate.getMonth() + 1).padStart(2, '0')
+	const day = String(parsedDate.getDate()).padStart(2, '0')
+	return `${year}-${month}-${day}`
+}
+
+function getTodayDateInputValue() {
+	return toDateInputValue(new Date())
+}
+
 function getNextTaskStatus(status) {
 	const currentIndex = TASK_STATUS_FLOW.indexOf(status)
 	if (currentIndex === -1) {
@@ -64,6 +84,7 @@ function createEmptyBoardPageState() {
 function TaskCard({
 	task,
 	projectLabel,
+	taskStartDate = null,
 	onEdit,
 	onAdvanceStatus,
 	onDelete,
@@ -139,6 +160,14 @@ function TaskCard({
 
 			<CardContent className="space-y-2 p-4 pt-2 text-xs">
 				<div className="grid grid-cols-2 gap-3">
+					<div>
+						<p className="text-muted-foreground">Start</p>
+						<p className="font-medium text-foreground">{formatDate(taskStartDate)}</p>
+					</div>
+					<div>
+						<p className="text-muted-foreground">Due</p>
+						<p className="font-medium text-foreground">{formatDate(task?.dueDate)}</p>
+					</div>
 					<div>
 						<p className="text-muted-foreground">Created</p>
 						<p className="font-medium text-foreground">{formatDate(task?.createdAt)}</p>
@@ -311,6 +340,28 @@ export default function TaskPage() {
 			}, {})
 		}, [projects])
 
+		const projectStartDateById = useMemo(() => {
+			return projects.reduce((lookup, project) => {
+				const projectId = project?.id || project?._id || project?.projectId
+				if (projectId) {
+					lookup[String(projectId)] = project?.startDate || null
+				}
+				return lookup
+			}, {})
+		}, [projects])
+
+		const projectDueDateById = useMemo(() => {
+			return projects.reduce((lookup, project) => {
+				const projectId = project?.id || project?._id || project?.projectId
+				if (projectId) {
+					lookup[String(projectId)] = project?.dueDate || null
+				}
+				return lookup
+			}, {})
+		}, [projects])
+
+		const todayDateInput = useMemo(() => getTodayDateInputValue(), [])
+
 		const getTaskProjectLabel = (task) => {
 			const projectId = task?.projectId
 			if (!projectId) {
@@ -319,6 +370,74 @@ export default function TaskPage() {
 
 			return projectNameById[String(projectId)] || 'Project'
 		}
+
+		const getTaskStartDate = (task) => {
+			if (task?.startDate) {
+				return task.startDate
+			}
+
+			if (!task?.projectId) {
+				return null
+			}
+
+			return projectStartDateById[String(task.projectId)] || null
+		}
+
+		const getTaskCreationDateInput = (task) => toDateInputValue(task?.createdAt)
+
+		const getTaskEditMinDueDate = (task) => {
+			const creationDate = getTaskCreationDateInput(task)
+			const projectStartDate = task?.projectId
+				? projectStartDateById[String(task.projectId)] || ''
+				: ''
+			const minimumDate = [creationDate, projectStartDate, todayDateInput]
+				.filter(Boolean)
+				.reduce((latest, current) => (current > latest ? current : latest), '')
+
+			return minimumDate || todayDateInput
+		}
+
+		const getTaskEditMaxDueDate = (task) => {
+			if (!task?.projectId) {
+				return ''
+			}
+
+			return projectDueDateById[String(task.projectId)] || ''
+		}
+
+		const validateTaskDueDate = ({ dueDate, projectId = null, minimumDueDate = todayDateInput }) => {
+			if (!dueDate) {
+				return 'Task due date is required.'
+			}
+
+			if (minimumDueDate && dueDate < minimumDueDate) {
+				return 'Task due date cannot be before task creation date.'
+			}
+
+			if (projectId) {
+				const projectDueDate = projectDueDateById[String(projectId)]
+				if (projectDueDate && dueDate > projectDueDate) {
+					return 'Task due date cannot be after project due date.'
+				}
+			}
+
+			return ''
+		}
+
+		const editingTask = useMemo(
+			() => tasks.find((task) => String(task?.id || task?._id) === String(editingTaskId)) || null,
+			[tasks, editingTaskId]
+		)
+
+		const editTaskMinDueDate = useMemo(
+			() => (editingTask ? getTaskEditMinDueDate(editingTask) : todayDateInput),
+			[editingTask, todayDateInput]
+		)
+
+		const editTaskMaxDueDate = useMemo(
+			() => (editingTask ? getTaskEditMaxDueDate(editingTask) : ''),
+			[editingTask, projectDueDateById]
+		)
 
 	const taskCounts = useMemo(() => {
 		const total = tasks.length
@@ -389,13 +508,17 @@ export default function TaskPage() {
 	}
 
 	const openCreateTask = (targetStatus = 'TODO') => {
+		const safeTargetStatus = typeof targetStatus === 'string' && BOARD_STATUS_KEYS.includes(targetStatus)
+			? targetStatus
+			: 'TODO'
+
 		setTaskForm({
 			title: '',
 			description: '',
 			priority: 'LOW',
 			dueDate: '',
 		})
-		setCreateTargetStatus(targetStatus)
+		setCreateTargetStatus(safeTargetStatus)
 		setIsCreateTaskOpen(true)
 	}
 
@@ -432,6 +555,15 @@ export default function TaskPage() {
 
 		if (!taskForm.dueDate) {
 			setError('Task due date is required.')
+			return
+		}
+
+		const createDueDateError = validateTaskDueDate({
+			dueDate: taskForm.dueDate,
+			minimumDueDate: todayDateInput,
+		})
+		if (createDueDateError) {
+			setError(createDueDateError)
 			return
 		}
 
@@ -524,9 +656,16 @@ export default function TaskPage() {
 			return
 		}
 
-		const existingTask = tasks.find(
-			(task) => String(task?.id || task?._id) === String(editingTaskId)
-		)
+		const existingTask = editingTask
+		const editDueDateError = validateTaskDueDate({
+			dueDate: editTaskForm.dueDate,
+			projectId: existingTask?.projectId || null,
+			minimumDueDate: existingTask ? getTaskEditMinDueDate(existingTask) : todayDateInput,
+		})
+		if (editDueDateError) {
+			setError(editDueDateError)
+			return
+		}
 
 		setIsSavingTask(true)
 		setError('')
@@ -748,6 +887,7 @@ export default function TaskPage() {
 												key={taskId}
 												task={task}
 												projectLabel={getTaskProjectLabel(task)}
+														taskStartDate={getTaskStartDate(task)}
 												onEdit={openEditTask}
 												onAdvanceStatus={handleAdvanceTaskStatus}
 												onDelete={handleDeleteTask}
@@ -803,6 +943,7 @@ export default function TaskPage() {
 												key={taskId}
 												task={task}
 												projectLabel={getTaskProjectLabel(task)}
+														taskStartDate={getTaskStartDate(task)}
 												onEdit={openEditTask}
 												onAdvanceStatus={handleAdvanceTaskStatus}
 												onDelete={handleDeleteTask}
@@ -858,6 +999,7 @@ export default function TaskPage() {
 												key={taskId}
 												task={task}
 												projectLabel={getTaskProjectLabel(task)}
+														taskStartDate={getTaskStartDate(task)}
 												onEdit={openEditTask}
 												onAdvanceStatus={handleAdvanceTaskStatus}
 												onDelete={handleDeleteTask}
@@ -1085,6 +1227,8 @@ export default function TaskPage() {
 										name="dueDate"
 										type="date"
 										value={editTaskForm.dueDate}
+										min={editTaskMinDueDate}
+										max={editTaskMaxDueDate || undefined}
 										onChange={handleEditTaskFormChange}
 										className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
 									/>
@@ -1164,6 +1308,7 @@ export default function TaskPage() {
 										name="dueDate"
 										type="date"
 										value={taskForm.dueDate}
+										min={todayDateInput}
 										onChange={handleTaskFormChange}
 										className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
 									/>
