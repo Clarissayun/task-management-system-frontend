@@ -42,7 +42,11 @@ api.interceptors.request.use((config) => {
 })
 
 const shouldSkipRefresh = (url = '') =>
-  url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
+  url.includes('/auth/login') ||
+  url.includes('/auth/register') ||
+  url.includes('/auth/refresh') ||
+  url.includes('/auth/otp/request') ||
+  url.includes('/auth/otp/verify')
 
 const refreshAccessToken = async () => {
   const refreshToken = getRefreshToken()

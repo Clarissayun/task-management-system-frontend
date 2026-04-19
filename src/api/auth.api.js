@@ -10,6 +10,16 @@ export const loginUser = async (payload) => {
   return data
 }
 
+export const requestOtp = async (payload) => {
+  const { data } = await api.post('/auth/otp/request', payload)
+  return data
+}
+
+export const verifyOtp = async (payload) => {
+  const { data } = await api.post('/auth/otp/verify', payload)
+  return data
+}
+
 export const refreshAuthToken = async (payload) => {
   const { data } = await api.post('/auth/refresh', payload)
   return data
