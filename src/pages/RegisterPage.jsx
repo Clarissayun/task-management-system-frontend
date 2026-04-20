@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { ArrowLeft, Eye, EyeOff, Lock, Mail, User, Loader2 } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, Lock, Mail, User, Loader2, KeyRound } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { registerUser } from '../api/auth.api'
+import { requestRegisterOtp, verifyRegisterOtp } from '../api/auth.api'
 import { Button } from '../components/ui/button'
 import {
   Card,
@@ -27,13 +27,17 @@ export default function RegisterPage() {
     email: '',
     password: '',
     confirmPassword: '',
+    otp: '',
   })
+  const [otpStep, setOtpStep] = useState('request')
   const [error, setError] = useState('')
+  const [infoMessage, setInfoMessage] = useState('')
   const [fieldErrors, setFieldErrors] = useState({
     username: '',
     email: '',
     password: '',
     confirmPassword: '',
+    otp: '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -50,6 +54,10 @@ export default function RegisterPage() {
 
     if (error) {
       setError('')
+    }
+
+    if (infoMessage) {
+      setInfoMessage('')
     }
   }
 
@@ -151,8 +159,34 @@ export default function RegisterPage() {
     return Object.values(nextFieldErrors).every((message) => !message)
   }
 
-  const submitRegister = async () => {
+  const validateOtpForm = () => {
+    const nextFieldErrors = {
+      otp: '',
+      email: '',
+    }
+
+    if (!form.email.trim()) {
+      nextFieldErrors.email = 'The email field is required.'
+    }
+
+    if (!form.otp.trim()) {
+      nextFieldErrors.otp = 'The OTP field is required.'
+    } else if (!/^\d{6}$/.test(form.otp.trim())) {
+      nextFieldErrors.otp = 'OTP must be a 6-digit code.'
+    }
+
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      email: nextFieldErrors.email,
+      otp: nextFieldErrors.otp,
+    }))
+
+    return !nextFieldErrors.email && !nextFieldErrors.otp
+  }
+
+  const submitRegisterOtpRequest = async () => {
     setError('')
+    setInfoMessage('')
 
     if (!validateRegisterForm()) {
       return
@@ -161,18 +195,14 @@ export default function RegisterPage() {
     setIsSubmitting(true)
 
     try {
-      await registerUser({
+      const message = await requestRegisterOtp({
         username: form.username.trim(),
         email: form.email.trim().toLowerCase(),
         password: form.password,
       })
 
-      navigate(ROUTES.login, {
-        replace: true,
-        state: {
-          message: 'Registration successful. Please log in with your new account.',
-        },
-      })
+      setOtpStep('verify')
+      setInfoMessage(typeof message === 'string' ? message : 'OTP sent. Check your email inbox.')
     } catch (apiError) {
       const backendFields = apiError.data?.fields
 
@@ -200,10 +230,73 @@ export default function RegisterPage() {
     }
   }
 
+  const submitRegisterOtpVerify = async () => {
+    setError('')
+
+    if (!validateOtpForm()) {
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      await verifyRegisterOtp({
+        email: form.email.trim().toLowerCase(),
+        otp: form.otp.trim(),
+      })
+
+      navigate(ROUTES.login, {
+        replace: true,
+        state: {
+          message: 'Registration successful. Please log in with your new account.',
+        },
+      })
+    } catch (apiError) {
+      const backendFields = apiError.data?.fields
+      const normalizedMessage = (apiError.message || '').toLowerCase()
+      const isSessionExpired =
+        normalizedMessage.includes('registration session expired') ||
+        normalizedMessage.includes('invalid or expired') ||
+        normalizedMessage.includes('request a new otp')
+
+      if (backendFields) {
+        setFieldErrors((currentErrors) => ({
+          ...currentErrors,
+          email: backendFields.email || currentErrors.email,
+          otp: backendFields.otp || currentErrors.otp,
+        }))
+      }
+
+      if (isSessionExpired) {
+        setOtpStep('request')
+        setForm((currentForm) => ({
+          ...currentForm,
+          otp: '',
+        }))
+        setInfoMessage('Your registration session expired. Please request a new OTP.')
+      }
+
+      setError(apiError.message || 'OTP verification failed. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handlePrimaryAction = async () => {
+    if (otpStep === 'request') {
+      await submitRegisterOtpRequest()
+      return
+    }
+
+    await submitRegisterOtpVerify()
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
-    await submitRegister()
+    await handlePrimaryAction()
   }
+
+  const isVerifyStep = otpStep === 'verify'
 
   return (
     <div className="mx-auto w-full max-w-sm space-y-4 text-left">
@@ -230,6 +323,12 @@ export default function RegisterPage() {
             </p>
           ) : null}
 
+          {infoMessage ? (
+            <p className="mb-3 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-300">
+              {infoMessage}
+            </p>
+          ) : null}
+
           <form onSubmit={handleSubmit} className="grid gap-4">
             <div className="grid gap-1.5 text-left">
               <Label htmlFor="username" className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
@@ -245,6 +344,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Choose a username"
                   autoComplete="username"
+                  disabled={isSubmitting || isVerifyStep}
                   className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
                     fieldErrors.username
                       ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
@@ -271,6 +371,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Enter your email"
                   autoComplete="email"
+                  disabled={isSubmitting || isVerifyStep}
                   className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
                     fieldErrors.email
                       ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
@@ -297,6 +398,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Create a password"
                   autoComplete="new-password"
+                  disabled={isSubmitting || isVerifyStep}
                   className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
                     fieldErrors.password
                       ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
@@ -331,6 +433,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Confirm your password"
                   autoComplete="new-password"
+                  disabled={isSubmitting || isVerifyStep}
                   className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 pr-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
                     fieldErrors.confirmPassword
                       ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
@@ -350,6 +453,45 @@ export default function RegisterPage() {
                 <p className="text-xs text-red-400">{fieldErrors.confirmPassword}</p>
               ) : null}
             </div>
+
+            {isVerifyStep ? (
+              <div className="grid gap-1.5 text-left">
+                <Label htmlFor="otp" className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                  OTP Code
+                </Label>
+                <div className="group relative">
+                  <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400" />
+                  <Input
+                    id="otp"
+                    name="otp"
+                    type="text"
+                    value={form.otp}
+                    onChange={handleChange}
+                    placeholder="6-digit code"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    disabled={isSubmitting}
+                    className={`h-10 rounded-lg border-border/70 bg-background/50 pl-10 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25 ${
+                      fieldErrors.otp
+                        ? 'border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-500/25 dark:focus-visible:border-red-400 dark:focus-visible:ring-red-400/25'
+                        : ''
+                    }`}
+                  />
+                </div>
+                {fieldErrors.otp ? (
+                  <p className="text-xs text-red-400">{fieldErrors.otp}</p>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 justify-start px-0 text-xs text-muted-foreground hover:text-foreground"
+                  disabled={isSubmitting}
+                  onClick={submitRegisterOtpRequest}
+                >
+                  Resend OTP
+                </Button>
+              </div>
+            ) : null}
           </form>
         </CardContent>
 
@@ -359,15 +501,15 @@ export default function RegisterPage() {
             size="lg"
             className="h-10 w-full rounded-lg shadow-lg shadow-indigo-500/20 transition-all duration-200 transform-gpu hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/35 hover:brightness-110 active:translate-y-0 disabled:hover:translate-y-0 disabled:hover:shadow-lg disabled:hover:shadow-indigo-500/20 disabled:hover:brightness-100"
             disabled={isSubmitting}
-            onClick={submitRegister}
+            onClick={handlePrimaryAction}
           >
             {isSubmitting ? (
               <span className="inline-flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
-                Creating account...
+                {isVerifyStep ? 'Verifying OTP...' : 'Sending OTP...'}
               </span>
             ) : (
-              'Create Account'
+              isVerifyStep ? 'Verify Registration OTP' : 'Send Registration OTP'
             )}
           </Button>
 

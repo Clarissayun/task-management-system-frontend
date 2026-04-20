@@ -45,6 +45,8 @@ const shouldSkipRefresh = (url = '') =>
   url.includes('/auth/login') ||
   url.includes('/auth/register') ||
   url.includes('/auth/refresh') ||
+  url.includes('/auth/register/otp/request') ||
+  url.includes('/auth/register/otp/verify') ||
   url.includes('/auth/otp/request') ||
   url.includes('/auth/otp/verify')
 

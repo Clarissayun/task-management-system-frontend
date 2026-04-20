@@ -1,7 +1,12 @@
 import api from './axios'
 
-export const registerUser = async (payload) => {
-  const { data } = await api.post('/auth/register', payload)
+export const requestRegisterOtp = async (payload) => {
+  const { data } = await api.post('/auth/register/otp/request', payload)
+  return data
+}
+
+export const verifyRegisterOtp = async (payload) => {
+  const { data } = await api.post('/auth/register/otp/verify', payload)
   return data
 }
 
