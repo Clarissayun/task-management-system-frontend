@@ -6,11 +6,12 @@ import {
   FolderOpen,
   LayoutGrid,
   ListTodo,
-  Settings,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import logo from '../../assets/logo.svg'
 import { ROUTES } from '../../constants/routes'
+import useAuth from '../../hooks/useAuth'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, href: ROUTES.dashboard },
@@ -23,10 +24,6 @@ const UPCOMING_ITEMS = [
   { id: 'docs', label: 'Docs', icon: FileText, href: '#' },
 ]
 
-const SECONDARY_ITEMS = [
-  { id: 'settings', label: 'Settings', icon: Settings, href: ROUTES.profile },
-]
-
 export default function DashboardSidebar({
   isCollapsed = false,
   isMobileOpen = false,
@@ -34,6 +31,7 @@ export default function DashboardSidebar({
   onNavigate,
 }) {
   const location = useLocation()
+  const { user } = useAuth()
 
   const isActive = (href) => {
     if (href === '#') return false
@@ -147,45 +145,30 @@ export default function DashboardSidebar({
         </nav>
       </div>
 
-      <div className="mt-6 border-t border-border/30 pt-6">
-        {!isCollapsed ? (
-          <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Account
-          </p>
-        ) : null}
-        <nav className="space-y-1">
-          {SECONDARY_ITEMS.map((item) => {
-            const Icon = item.icon
-            const active = isActive(item.href)
-
-            return (
-              <Link
-                key={item.id}
-                to={item.href}
-                title={item.label}
-                className={`flex items-center rounded-lg py-2.5 text-sm font-medium transition-all ${
-                  isCollapsed ? 'justify-center px-2' : 'gap-3 px-3'
-                } ${
-                  active
-                    ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
-                    : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
-                }`}
-                onClick={() => onNavigate?.()}
-              >
-                <Icon className="h-4 w-4 flex-shrink-0" />
-                {!isCollapsed ? <span>{item.label}</span> : null}
-              </Link>
-            )
-          })}
-        </nav>
-      </div>
-
-      <div className="mt-auto flex justify-center lg:pb-2">
-        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-fuchsia-500 via-purple-500 to-cyan-500 p-0.5">
-          <div className="flex h-full w-full items-center justify-center rounded-full bg-background text-xs font-semibold text-foreground/80">
-            U
-          </div>
-        </div>
+      <div className="mt-auto border-t border-border/30 pt-6">
+        <Link
+          to={ROUTES.profile}
+          className={`flex items-center rounded-lg py-2.5 text-sm font-medium transition-all ${
+            isCollapsed ? 'justify-center px-2' : 'gap-3 px-3'
+          } ${
+            isActive(ROUTES.profile)
+              ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
+              : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
+          }`}
+          title={user?.username || 'Profile'}
+          onClick={() => onNavigate?.()}
+        >
+          <Avatar className="h-8 w-8 flex-shrink-0">
+            <AvatarImage src={user?.avatar} alt={user?.username} />
+            <AvatarFallback>{user?.username?.charAt(0)?.toUpperCase() || 'U'}</AvatarFallback>
+          </Avatar>
+          {!isCollapsed ? (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{user?.username || 'User'}</p>
+              <p className="truncate text-xs text-muted-foreground">{user?.email || 'Profile'}</p>
+            </div>
+          ) : null}
+        </Link>
       </div>
     </aside>
   )

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Eye, EyeOff, Loader2, Shield, X } from 'lucide-react'
-import { getUserById, updatePassword, updateUserProfile } from '../api/auth.api'
+import { AlertTriangle, Eye, EyeOff, Loader2, Shield, Upload, X, Trash2 } from 'lucide-react'
+import { getUserById, updatePassword, updateUserProfile, uploadAvatar, removeAvatar } from '../api/auth.api'
 import useAuth from '../hooks/useAuth'
+import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -56,6 +57,13 @@ export default function ProfilePage() {
   const [showOldPassword, setShowOldPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [avatarFile, setAvatarFile] = useState(null)
+  const [avatarPreview, setAvatarPreview] = useState(user?.avatar || '')
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const [isRemovingAvatar, setIsRemovingAvatar] = useState(false)
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
+  const [avatarMessage, setAvatarMessage] = useState('')
+  const [avatarError, setAvatarError] = useState('')
 
   useEffect(() => {
     setAccountCreatedAt(user?.createdAt || user?.created_at || user?.createdDate || '')
@@ -232,6 +240,128 @@ export default function ProfilePage() {
     setIsProfileEditing(false)
   }
 
+  const handleAvatarChange = (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('Please select a valid image file')
+      return
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('File size must be less than 5MB')
+      return
+    }
+
+    setAvatarFile(file)
+    setAvatarError('')
+    setAvatarMessage('')
+
+    // Create preview
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setAvatarPreview(reader.result)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleUploadAvatar = async (event) => {
+    event.preventDefault()
+    setAvatarError('')
+    setAvatarMessage('')
+
+    if (!userId) {
+      setAvatarError('No active user session found.')
+      return
+    }
+
+    if (!avatarFile) {
+      setAvatarError('Please select an image file')
+      return
+    }
+
+    setIsUploadingAvatar(true)
+
+    try {
+      const updatedUser = await uploadAvatar(userId, avatarFile)
+
+      updateUser({
+        ...user,
+        avatar: updatedUser.avatar,
+        userId: updatedUser.id || userId,
+        id: updatedUser.id || userId,
+      })
+
+      setAvatarFile(null)
+      setAvatarMessage('Avatar uploaded successfully.')
+
+      // Reset file input
+      const fileInput = document.getElementById('avatar-input')
+      if (fileInput) {
+        fileInput.value = ''
+      }
+    } catch (apiError) {
+      setAvatarError(apiError.message || 'Failed to upload avatar.')
+      setAvatarPreview(user?.avatar || '')
+    } finally {
+      setIsUploadingAvatar(false)
+    }
+  }
+
+  const handleCancelAvatarEdit = () => {
+    setAvatarFile(null)
+    setAvatarPreview(user?.avatar || '')
+    setAvatarError('')
+    setAvatarMessage('')
+    const fileInput = document.getElementById('avatar-input')
+    if (fileInput) {
+      fileInput.value = ''
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    if (!userId) {
+      setAvatarError('No active user session found.')
+      return
+    }
+
+    setIsRemovingAvatar(true)
+    setAvatarError('')
+    setAvatarMessage('')
+
+    try {
+      const updatedUser = await removeAvatar(userId)
+
+      updateUser({
+        ...user,
+        avatar: updatedUser.avatar,
+        userId: updatedUser.id || userId,
+        id: updatedUser.id || userId,
+      })
+
+      setAvatarPreview('')
+      setAvatarMessage('Profile picture removed successfully.')
+      setShowRemoveConfirm(false)
+    } catch (apiError) {
+      setAvatarError(apiError.message || 'Failed to remove profile picture.')
+    } finally {
+      setIsRemovingAvatar(false)
+    }
+  }
+
+  const handleOpenRemoveConfirm = () => {
+    setShowRemoveConfirm(true)
+    setAvatarError('')
+    setAvatarMessage('')
+  }
+
+  const handleCancelRemoveConfirm = () => {
+    setShowRemoveConfirm(false)
+  }
+
   return (
     <section className="space-y-5 pb-4 text-left sm:space-y-6 sm:pb-6">
       <div className="flex items-start gap-3">
@@ -245,133 +375,263 @@ export default function ProfilePage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="border-border/50 bg-background/50 backdrop-blur-sm shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Profile Information</CardTitle>
-              <CardDescription>View and manage your personal details.</CardDescription>
-            </div>
-            {!isProfileEditing && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsProfileEditing(true)}
-              >
-                Edit
-              </Button>
-            )}
-          </CardHeader>
-          <CardContent>
-            {!isProfileEditing ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="profile-username-view">Username</Label>
-                  <Input
-                    id="profile-username-view"
-                    value={user?.username || '-'}
-                    readOnly
-                    disabled
-                    className="bg-muted"
-                  />
+        <div className="space-y-6">
+          <Card className="border-border/50 bg-background/50 backdrop-blur-sm shadow-sm">
+            <CardHeader>
+              <CardTitle>Profile Picture</CardTitle>
+              <CardDescription>Click on your avatar to upload a new profile picture.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleUploadAvatar} className="space-y-3">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('avatar-input')?.click()}
+                      className="group relative"
+                      aria-label="Upload avatar"
+                    >
+                      <Avatar className="h-16 w-16 transition-opacity group-hover:opacity-75">
+                        <AvatarImage src={avatarPreview} alt={user?.username} />
+                        <AvatarFallback>{user?.username?.charAt(0)?.toUpperCase() || 'U'}</AvatarFallback>
+                      </Avatar>
+                      <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                        <Upload className="h-5 w-5 text-white" />
+                      </div>
+                    </button>
+                    <Input
+                      id="avatar-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                      aria-label="Upload avatar"
+                    />
+                  </div>
+
+                  {avatarFile && (
+                    <p className="text-center text-xs text-muted-foreground">
+                      Selected: <span className="font-medium">{avatarFile.name}</span>
+                    </p>
+                  )}
+
+                  {avatarError ? <p className="text-xs text-destructive text-center">{avatarError}</p> : null}
+                  {avatarMessage ? (
+                    <div className="rounded-md bg-emerald-500/10 p-2 text-xs text-emerald-600 w-full text-center">{avatarMessage}</div>
+                  ) : null}
+
+                  {avatarFile && (
+                    <div className="flex gap-2 w-full">
+                      <Button type="submit" size="sm" className="flex-1 text-xs" disabled={isUploadingAvatar}>
+                        {isUploadingAvatar ? (
+                          <>
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          'Upload'
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={handleCancelAvatarEdit}
+                        disabled={isUploadingAvatar}
+                      >
+                        <X className="mr-1 h-3 w-3" />
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+
+                  {!avatarFile && user?.avatar && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="w-full text-xs"
+                      onClick={handleOpenRemoveConfirm}
+                      disabled={isRemovingAvatar}
+                    >
+                      <Trash2 className="mr-1 h-3 w-3" />
+                      Remove Picture
+                    </Button>
+                  )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="profile-email-view">Email</Label>
-                  <Input
-                    id="profile-email-view"
-                    value={user?.email || '-'}
-                    readOnly
-                    disabled
-                    className="bg-muted"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="profile-created-view">Account Created</Label>
-                  <Input
-                    id="profile-created-view"
-                    value={formatDateTime(accountCreatedAt)}
-                    readOnly
-                    disabled
-                    className="bg-muted"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="profile-updated-view">Last Updated</Label>
-                  <Input
-                    id="profile-updated-view"
-                    value={formatDateTime(accountUpdatedAt || accountCreatedAt)}
-                    readOnly
-                    disabled
-                    className="bg-muted"
-                  />
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleProfileSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="profile-username">Username</Label>
-                  <Input
-                    id="profile-username"
-                    name="username"
-                    type="text"
-                    value={profileForm.username}
-                    onChange={handleProfileChange}
-                    autoComplete="username"
-                    className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="profile-email">Email</Label>
-                  <Input
-                    id="profile-email"
-                    name="email"
-                    type="email"
-                    value={profileForm.email}
-                    onChange={handleProfileChange}
-                    autoComplete="email"
-                    className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="profile-created">Account Created</Label>
-                  <Input id="profile-created" value={formatDateTime(accountCreatedAt)} readOnly disabled className="bg-muted" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="profile-updated">Last Updated</Label>
-                  <Input id="profile-updated" value={formatDateTime(accountUpdatedAt || accountCreatedAt)} readOnly disabled className="bg-muted" />
-                </div>
-
-                {profileError ? <p className="text-sm text-destructive">{profileError}</p> : null}
-                {profileMessage ? (
-                  <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600">{profileMessage}</div>
-                ) : null}
-
-                <div className="flex gap-2">
-                  <Button type="submit" className="flex-1" disabled={isSavingProfile}>
-                    {isSavingProfile ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      'Save Changes'
-                    )}
-                  </Button>
-                  <Button type="button" variant="outline" className="flex-1" onClick={handleCancelProfileEdit}>
-                    <X className="mr-2 h-4 w-4" />
-                    Cancel
-                  </Button>
-                </div>
+                {showRemoveConfirm && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <Card className="w-full max-w-sm border-border/50 bg-background/95 backdrop-blur-sm shadow-lg">
+                      <CardHeader>
+                        <CardTitle className="text-destructive">Remove Profile Picture?</CardTitle>
+                        <CardDescription>
+                          Are you sure you want to remove your profile picture? You'll revert to your default avatar.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex gap-3">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          className="flex-1"
+                          onClick={handleRemoveAvatar}
+                          disabled={isRemovingAvatar}
+                        >
+                          {isRemovingAvatar ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Removing...
+                            </>
+                          ) : (
+                            <>Remove</>
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={handleCancelRemoveConfirm}
+                          disabled={isRemovingAvatar}
+                        >
+                          Cancel
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
               </form>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 bg-background/50 backdrop-blur-sm shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Profile Information</CardTitle>
+                <CardDescription>View and manage your personal details.</CardDescription>
+              </div>
+              {!isProfileEditing && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsProfileEditing(true)}
+                >
+                  Edit
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {!isProfileEditing ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-username-view">Username</Label>
+                    <Input
+                      id="profile-username-view"
+                      value={user?.username || '-'}
+                      readOnly
+                      disabled
+                      className="bg-muted"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-email-view">Email</Label>
+                    <Input
+                      id="profile-email-view"
+                      value={user?.email || '-'}
+                      readOnly
+                      disabled
+                      className="bg-muted"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-created-view">Account Created</Label>
+                    <Input
+                      id="profile-created-view"
+                      value={formatDateTime(accountCreatedAt)}
+                      readOnly
+                      disabled
+                      className="bg-muted"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-updated-view">Last Updated</Label>
+                    <Input
+                      id="profile-updated-view"
+                      value={formatDateTime(accountUpdatedAt || accountCreatedAt)}
+                      readOnly
+                      disabled
+                      className="bg-muted"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleProfileSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-username">Username</Label>
+                    <Input
+                      id="profile-username"
+                      name="username"
+                      type="text"
+                      value={profileForm.username}
+                      onChange={handleProfileChange}
+                      autoComplete="username"
+                      className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-email">Email</Label>
+                    <Input
+                      id="profile-email"
+                      name="email"
+                      type="email"
+                      value={profileForm.email}
+                      onChange={handleProfileChange}
+                      autoComplete="email"
+                      className="rounded-lg border-border/70 bg-background/50 transition-all focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-500/25 dark:focus-visible:border-indigo-400 dark:focus-visible:ring-indigo-400/25"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-created">Account Created</Label>
+                    <Input id="profile-created" value={formatDateTime(accountCreatedAt)} readOnly disabled className="bg-muted" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-updated">Last Updated</Label>
+                    <Input id="profile-updated" value={formatDateTime(accountUpdatedAt || accountCreatedAt)} readOnly disabled className="bg-muted" />
+                  </div>
+
+                  {profileError ? <p className="text-sm text-destructive">{profileError}</p> : null}
+                  {profileMessage ? (
+                    <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600">{profileMessage}</div>
+                  ) : null}
+
+                  <div className="flex gap-2">
+                    <Button type="submit" className="flex-1" disabled={isSavingProfile}>
+                      {isSavingProfile ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        'Save Changes'
+                      )}
+                    </Button>
+                    <Button type="button" variant="outline" className="flex-1" onClick={handleCancelProfileEdit}>
+                      <X className="mr-2 h-4 w-4" />
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="space-y-6">
           <Card className="border-border/50 bg-background/50 backdrop-blur-sm shadow-sm">
