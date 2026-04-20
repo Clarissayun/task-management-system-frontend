@@ -43,7 +43,7 @@ function getUserId(user) {
 }
 
 // --- Sub-component: Project Card ---
-const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0 }) => {
+const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0, completionRate = 0 }) => {
   return (
     <Card className="flex flex-col overflow-hidden border-border/50 bg-card/50 backdrop-blur-md shadow-md transition-all hover:border-primary/50 group h-full">
       <CardHeader className="p-3 pb-2 text-left">
@@ -94,7 +94,7 @@ const ProjectCard = ({ project, onDelete, onEdit, onOpen, taskCount = 0 }) => {
             <span className="text-xs text-muted-foreground block mb-0.5">Completion:</span>
             <div className="flex items-center gap-1.5 font-medium text-foreground sm:justify-start justify-end">
               <BarChart3 className="h-3 w-3 text-green-500/70" />
-               {project.completionRate || 0}%
+               {completionRate}%
             </div>
           </div>
 
@@ -370,10 +370,16 @@ export default function ProjectsPage() {
         const results = await Promise.allSettled(
           projects.map((project) => {
             const projectKey = String(project?.id || project?._id || project?.projectId)
-            return getTasks({ userId, projectId: projectKey }).then((tasks) => ({
-              projectKey,
-              count: Array.isArray(tasks) ? tasks.length : 0,
-            }))
+            return getTasks({ userId, projectId: projectKey }).then((tasks) => {
+              const totalTasks = Array.isArray(tasks) ? tasks.length : 0
+              const completedTasks = Array.isArray(tasks) ? tasks.filter(t => t.status === 'DONE').length : 0
+              const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
+              return {
+                projectKey,
+                count: totalTasks,
+                completionRate: completionRate,
+              }
+            })
           })
         )
 
@@ -382,7 +388,10 @@ export default function ProjectsPage() {
             return
           }
 
-          nextCounts[result.value.projectKey] = result.value.count
+          nextCounts[result.value.projectKey] = {
+            count: result.value.count,
+            completionRate: result.value.completionRate,
+          }
         })
 
         setTaskCountsByProjectId(nextCounts)
@@ -696,7 +705,9 @@ export default function ProjectsPage() {
                 ) : (
                   visibleProjects.map((project) => {
                     const projectId = project?.id || project?._id || project?.projectId
-                    const totalTasks = taskCountsByProjectId[String(projectId)] ?? 0
+                    const projectTaskData = taskCountsByProjectId[String(projectId)] ?? { count: 0, completionRate: 0 }
+                    const totalTasks = projectTaskData.count ?? 0
+                    const completionRate = projectTaskData.completionRate ?? 0
 
                     return (
                       <tr
@@ -721,7 +732,7 @@ export default function ProjectsPage() {
                         </td>
                         <td className="px-4 py-3 align-middle font-medium text-foreground">{totalTasks}</td>
                         <td className="px-4 py-3 align-middle font-medium text-foreground">
-                          {project.completionRate || 0}%
+                          {completionRate}%
                         </td>
                         <td className="px-4 py-3 align-middle text-muted-foreground">
                           {new Date(project.createdAt).toLocaleDateString()}
@@ -792,18 +803,21 @@ export default function ProjectsPage() {
             </div>
           ) : null}
 
-          {visibleProjects.map((project) => (
-            <ProjectCard
-              key={project?.id || project?._id || project?.projectId}
-              project={project}
-              onDelete={handleDeleteProject}
-              onEdit={handleEditProject}
-              onOpen={handleOpenProject}
-              taskCount={
-                taskCountsByProjectId[String(project?.id || project?._id || project?.projectId)] ?? 0
-              }
-            />
-          ))}
+          {visibleProjects.map((project) => {
+            const projectKey = String(project?.id || project?._id || project?.projectId)
+            const projectTaskData = taskCountsByProjectId[projectKey] ?? { count: 0, completionRate: 0 }
+            return (
+              <ProjectCard
+                key={projectKey}
+                project={project}
+                onDelete={handleDeleteProject}
+                onEdit={handleEditProject}
+                onOpen={handleOpenProject}
+                taskCount={projectTaskData.count ?? 0}
+                completionRate={projectTaskData.completionRate ?? 0}
+              />
+            )
+          })}
         </div>
       )}
 

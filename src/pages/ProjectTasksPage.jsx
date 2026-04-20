@@ -444,14 +444,14 @@ export default function ProjectTasksPage() {
   }, [projectId, userId, searchQuery, listStatusFilter, priorityFilter, dueDateFromFilter, dueDateToFilter, sortBy])
 
   const taskCounts = useMemo(() => {
-    const total = tasks.length
-    const completed = tasks.filter((task) => task.status === 'DONE').length
-    const inProgress = tasks.filter((task) => task.status === 'IN_PROGRESS').length
-    const todo = tasks.filter((task) => task.status === 'TODO').length
+    const total = boardPages.TODO.totalElements + boardPages.IN_PROGRESS.totalElements + boardPages.DONE.totalElements
+    const completed = boardPages.DONE.totalElements
+    const inProgress = boardPages.IN_PROGRESS.totalElements
+    const todo = boardPages.TODO.totalElements
     const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0
 
     return { total, completed, inProgress, todo, completionRate }
-  }, [tasks])
+  }, [boardPages])
 
   const projectProgress = taskCounts.completionRate
 
@@ -1220,15 +1220,15 @@ export default function ProjectTasksPage() {
 
         {viewMode === 'list' ? (
           listTasks.length === 0 ? (
-            <Card className="border-border/50 bg-card/30 backdrop-blur-md shadow-sm">
-              <CardContent className="space-y-3 p-6 text-sm text-muted-foreground">
-                <p>No tasks in this project yet.</p>
-                <Button type="button" size="sm" onClick={() => openCreateTask('TODO')}>
-                  <Plus className="mr-1.5 h-3.5 w-3.5" />
-                  Add New Task
-                </Button>
-              </CardContent>
-            </Card>
+            <button
+              type="button"
+              onClick={() => openCreateTask('TODO')}
+              className="flex w-full max-w-sm flex-col items-center justify-center rounded-2xl border-2 border-dashed border-foreground/35 bg-card/30 px-4 py-12 text-center transition-colors hover:border-primary/60"
+            >
+              <Plus className="mb-3 h-8 w-8 text-foreground/70" />
+              <p className="text-sm font-bold tracking-tight text-foreground">Add New Task</p>
+              <p className="mt-1 text-xs text-muted-foreground">Create a task for this project</p>
+            </button>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border/50 bg-card/30 backdrop-blur-md">
               <div className="overflow-x-auto">
@@ -1318,15 +1318,15 @@ export default function ProjectTasksPage() {
             </div>
           )
         ) : tasks.length === 0 ? (
-          <Card className="border-border/50 bg-card/30 backdrop-blur-md shadow-sm">
-            <CardContent className="space-y-3 p-6 text-sm text-muted-foreground">
-              <p>No tasks in this project yet.</p>
-              <Button type="button" size="sm" onClick={() => openCreateTask('TODO')}>
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Add New Task
-              </Button>
-            </CardContent>
-          </Card>
+          <button
+            type="button"
+            onClick={() => openCreateTask('TODO')}
+            className="flex w-full max-w-sm flex-col items-center justify-center rounded-2xl border-2 border-dashed border-foreground/35 bg-card/30 px-4 py-12 text-center transition-colors hover:border-primary/60"
+          >
+            <Plus className="mb-3 h-8 w-8 text-foreground/70" />
+            <p className="text-sm font-bold tracking-tight text-foreground">Add New Task</p>
+            <p className="mt-1 text-xs text-muted-foreground">Create a task for this project</p>
+          </button>
         ) : (
           <div className="overflow-x-auto">
             <div className="grid min-w-[920px] grid-cols-3 gap-4">

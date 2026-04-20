@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from '../components/ui/tooltip'
 import logo from '../assets/logo.svg';
+import dashboardPreview from '../assets/dashboard-preview.png';
 import { ROUTES } from '../constants/routes'
 import { useTheme } from '../hooks/useTheme'
 
@@ -110,8 +111,8 @@ export default function LandingPage() {
       </header>
 
       {/* --- Hero Section --- */}
-      <main className="relative z-10 mx-auto flex min-h-[calc(100svh-4rem)] w-full max-w-6xl flex-col px-4 py-10 text-center sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl">
+      <main className="relative z-10 mx-auto flex min-h-[calc(100svh-4rem)] w-full max-w-6xl flex-col px-4 pt-6 pb-10 text-center sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl flex flex-col items-center justify-center">
           <div className="mx-auto mb-8 inline-flex items-center gap-3 rounded-full border border-violet-500/20 bg-violet-500/5 px-4 py-1.5 text-xs font-medium tracking-wide text-violet-700 backdrop-blur-md dark:text-violet-300">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75"></span>
@@ -142,7 +143,7 @@ export default function LandingPage() {
             execute faster, and stay focused.
           </p>
 
-          <div className="mt-12 flex flex-col items-center justify-center gap-4 sm:flex-row">
+          <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Button
               asChild
               size="lg"
@@ -153,25 +154,18 @@ export default function LandingPage() {
                 <span className="transition-transform group-hover:translate-x-1">→</span>
               </Link>
             </Button>
-
-            <Button
-              asChild
-              variant="ghost"
-              size="lg"
-              className="h-12 min-w-[160px] rounded-full text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-            >
-              <Link to={ROUTES.login}>Learn More</Link>
-            </Button>
           </div>
 
-          <div className="relative mt-20 perspective-1000">
+          <div className="relative mt-12 perspective-1000 mx-auto w-full max-w-4xl">
             {/* Glow behind the mockup */}
             <div className="absolute -inset-10 z-0 bg-gradient-to-r from-violet-500/20 to-indigo-500/20 blur-3xl rounded-full" />
             
             <div className="relative z-10 rounded-2xl border border-border/50 bg-background/50 p-4 backdrop-blur-xl shadow-2xl">
-              <div className="aspect-[16/9] w-full rounded-xl border border-border/30 bg-zinc-900/5 dark:bg-white/5 flex items-center justify-center">
-                <span className="text-sm text-muted-foreground italic">Dashboard preview incoming...</span>
-              </div>
+              <img 
+                src={dashboardPreview} 
+                alt="Dashboard Preview" 
+                className="w-full rounded-xl border border-border/30 object-cover"
+              />
             </div>
           </div>
         </div>
