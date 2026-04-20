@@ -7,18 +7,20 @@ import {
   LayoutGrid,
   ListTodo,
   Settings,
-  Users,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
+import logo from '../../assets/logo.svg'
 import { ROUTES } from '../../constants/routes'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, href: ROUTES.dashboard },
   { id: 'tasks', label: 'Tasks', icon: ListTodo, href: ROUTES.tasks },
-  { id: 'calendar', label: 'Calendar', icon: Calendar, href: '#' },
   { id: 'projects', label: 'Projects', icon: FolderOpen, href: ROUTES.projects },
+]
+
+const UPCOMING_ITEMS = [
+  { id: 'calendar', label: 'Calendar', icon: Calendar, href: '#' },
   { id: 'docs', label: 'Docs', icon: FileText, href: '#' },
-  { id: 'members', label: 'Members', icon: Users, href: '#' },
 ]
 
 const SECONDARY_ITEMS = [
@@ -46,9 +48,7 @@ export default function DashboardSidebar({
     >
       <div className="mb-8 flex items-center justify-between">
         <div className="flex items-center gap-2 px-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-sm">
-            TM
-          </div>
+          <img src={logo} alt="Logo" className="h-8 w-8 flex-shrink-0" />
           {!isCollapsed ? (
             <span className="text-sm font-semibold tracking-tight">Task Manager</span>
           ) : null}
@@ -101,6 +101,53 @@ export default function DashboardSidebar({
       </nav>
 
       <div className="mt-8 border-t border-border/30 pt-6">
+        {!isCollapsed ? (
+          <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Coming Soon
+          </p>
+        ) : null}
+        <nav className="space-y-1">
+          {UPCOMING_ITEMS.map((item) => {
+            const Icon = item.icon
+            const active = isActive(item.href)
+            const isDisabled = item.href === '#'
+
+            return (
+              <Link
+                key={item.id}
+                to={item.href}
+                title={item.label}
+                className={`flex items-center justify-between rounded-lg py-2.5 text-sm font-medium transition-all ${
+                  isCollapsed ? 'px-2' : 'gap-3 px-3'
+                } ${
+                  isDisabled
+                    ? 'cursor-not-allowed text-muted-foreground'
+                    : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
+                }`}
+                onClick={(e) => {
+                  if (isDisabled) {
+                    e.preventDefault()
+                    return
+                  }
+                  onNavigate?.()
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {!isCollapsed ? <span>{item.label}</span> : null}
+                </div>
+                {!isCollapsed ? (
+                  <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                    Upcoming
+                  </span>
+                ) : null}
+              </Link>
+            )
+          })}
+        </nav>
+      </div>
+
+      <div className="mt-6 border-t border-border/30 pt-6">
         {!isCollapsed ? (
           <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Account

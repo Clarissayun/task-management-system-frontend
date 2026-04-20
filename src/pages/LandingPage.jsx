@@ -7,6 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '../components/ui/tooltip'
+import logo from '../assets/logo.svg';
 import { ROUTES } from '../constants/routes'
 import { useTheme } from '../hooks/useTheme'
 
@@ -49,8 +50,11 @@ export default function LandingPage() {
       {/* --- Header --- */}
       <header className="relative z-10 bg-background/35 backdrop-blur supports-[backdrop-filter]:bg-background/25">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <Link to={ROUTES.root} className="font-heading text-base font-semibold tracking-tight">
-            TaskManagementSystem
+          <Link to={ROUTES.root} className="flex items-center gap-2">
+            <img src={logo} alt="Logo" className="h-8 w-auto" />
+            <span className="font-heading text-base font-semibold tracking-tight">
+              TaskManagementSystem
+            </span>
           </Link>
 
           <div className="flex items-center gap-2 sm:gap-3">
